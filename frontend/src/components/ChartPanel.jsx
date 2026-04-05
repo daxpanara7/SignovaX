@@ -1,10 +1,9 @@
-import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { createChart, CandlestickSeries, LineSeries } from 'lightweight-charts';
 import { useChartStore } from '../stores/chartStore';
 import { useSignalStore } from '../stores';
 import { usePriceStore } from '../stores/priceStore';
 import { fetchCandles, fetchLiveSignal } from '../services/marketApi';
-import { useBinanceStream } from '../hooks/useBinanceStream';
 import { generateMockCandles, mockOrderBlocks, mockLiquidityZones } from '../data/mockData';
 import { Camera, RotateCcw, TrendingUp, Wifi, WifiOff } from 'lucide-react';
 
@@ -15,7 +14,9 @@ const ChartPanel = () => {
   const chartRef          = useRef(null);
   const candleSeriesRef   = useRef(null);
   const overlaySeriesRef  = useRef([]);
-  const candleBufferRef   = useRef([]); // holds all candles in memory
+  const candleBufferRef   = useRef([]);
+  const klineWsRef        = useRef(null);
+  const chartReadyRef     = useRef(false);
 
   const { symbol, timeframe,
     showOrderBlocks, showFVGs, showLiquidityZones,
@@ -30,87 +31,12 @@ const ChartPanel = () => {
   const [loading,    setLoading]    = useState(true);
   const [analyzing,  setAnalyzing]  = useState(false);
   const [signalData, setSignalData] = useState(null);
-  const [wsStatus,   setWsStatus]   = useState('CONNECTING');
+  const [wsLive,     setWsLive]     = useState(false);
   const [error,      setError]      = useState(null);
 
   const binanceInterval = TF_MAP[timeframe] || '15m';
 
-  // ── 1. Load historical candles via REST on mount / symbol / timeframe ────
-  const loadHistory = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const candles = await fetchCandles(symbol, binanceInterval, 500);
-      candles.sort((a, b) => a.time - b.time);
-      candleBufferRef.current = candles;
-      if (candleSeriesRef.current) {
-        candleSeriesRef.current.setData(candles);
-        chartRef.current?.timeScale().fitContent();
-      }
-      setWsStatus('CONNECTING');
-    } catch {
-      setError('Binance unreachable — showing mock data');
-      const mock = generateMockCandles(300, prices[symbol]?.price || 67000);
-      candleBufferRef.current = mock;
-      if (candleSeriesRef.current) {
-        candleSeriesRef.current.setData(mock);
-        chartRef.current?.timeScale().fitContent();
-      }
-    } finally {
-      setLoading(false);
-    }
-  }, [symbol, binanceInterval]); // eslint-disable-line
-
-  useEffect(() => { loadHistory(); }, [loadHistory]);
-
-  // ── 2. WebSocket kline stream — incremental candle updates ───────────────
-  const onKline = useCallback((sym, interval, candle) => {
-    if (sym !== symbol || interval !== binanceInterval) return;
-    if (!candleSeriesRef.current) return;
-
-    const buf = candleBufferRef.current;
-    if (buf.length === 0) return;
-
-    const last = buf[buf.length - 1];
-
-    if (candle.time === last.time) {
-      // Update current (open) candle in-place
-      const updated = {
-        time:  candle.time,
-        open:  last.open, // open never changes mid-candle
-        high:  Math.max(last.high, candle.high),
-        low:   Math.min(last.low,  candle.low),
-        close: candle.close,
-      };
-      buf[buf.length - 1] = updated;
-      candleSeriesRef.current.update(updated);
-    } else if (candle.time > last.time) {
-      // New candle opened
-      const newCandle = {
-        time:  candle.time,
-        open:  candle.open,
-        high:  candle.high,
-        low:   candle.low,
-        close: candle.close,
-      };
-      buf.push(newCandle);
-      // Keep buffer from growing unbounded
-      if (buf.length > 1000) buf.shift();
-      candleSeriesRef.current.update(newCandle);
-    }
-  }, [symbol, binanceInterval]);
-
-  const onWsStatus = useCallback((status) => {
-    setWsStatus(status);
-  }, []);
-
-  // Connect kline stream for the active chart symbol
-  useBinanceStream([symbol], symbol, binanceInterval, {
-    onKline,
-    onStatus: onWsStatus,
-  });
-
-  // ── 3. Initialize chart (once) ───────────────────────────────────────────
+  // ── 1. Init chart FIRST (synchronous, no async) ──────────────────────────
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
@@ -135,6 +61,7 @@ const ChartPanel = () => {
 
     chartRef.current        = chart;
     candleSeriesRef.current = series;
+    chartReadyRef.current   = true;
 
     const onResize = () => {
       if (chartContainerRef.current && chartRef.current) {
@@ -147,12 +74,128 @@ const ChartPanel = () => {
     window.addEventListener('resize', onResize);
 
     return () => {
+      chartReadyRef.current = false;
       window.removeEventListener('resize', onResize);
       chartRef.current?.remove();
       chartRef.current        = null;
       candleSeriesRef.current = null;
     };
-  }, []); // only once
+  }, []); // once only
+
+  // ── 2. Load historical candles (REST) ────────────────────────────────────
+  const loadHistory = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const candles = await fetchCandles(symbol, binanceInterval, 500);
+      candles.sort((a, b) => a.time - b.time);
+      candleBufferRef.current = candles;
+      // Wait until chart is ready
+      if (candleSeriesRef.current) {
+        candleSeriesRef.current.setData(candles);
+        chartRef.current?.timeScale().fitContent();
+      }
+    } catch {
+      const mock = generateMockCandles(300, prices[symbol]?.price || 67000);
+      candleBufferRef.current = mock;
+      if (candleSeriesRef.current) {
+        candleSeriesRef.current.setData(mock);
+        chartRef.current?.timeScale().fitContent();
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [symbol, binanceInterval]); // eslint-disable-line
+
+  useEffect(() => {
+    // Small delay to ensure chart is initialized before loading data
+    const t = setTimeout(loadHistory, 100);
+    return () => clearTimeout(t);
+  }, [loadHistory]);
+
+  // ── 3. Kline WebSocket — dedicated connection for chart candles ──────────
+  useEffect(() => {
+    // Close previous kline WS
+    if (klineWsRef.current) {
+      klineWsRef.current.onclose = null;
+      klineWsRef.current.close();
+      klineWsRef.current = null;
+    }
+    setWsLive(false);
+
+    const streamName = `${symbol.toLowerCase()}@kline_${binanceInterval}`;
+    const url = `wss://stream.binance.com:9443/ws/${streamName}`;
+
+    let reconnectTimer = null;
+    let alive = true;
+
+    const connect = () => {
+      if (!alive) return;
+      const ws = new WebSocket(url);
+      klineWsRef.current = ws;
+
+      ws.onopen = () => {
+        if (!alive) return;
+        setWsLive(true);
+      };
+
+      ws.onmessage = (evt) => {
+        if (!alive || !candleSeriesRef.current) return;
+        try {
+          const msg = JSON.parse(evt.data);
+          const k   = msg.k;
+          if (!k) return;
+
+          const candle = {
+            time:  Math.floor(k.t / 1000),
+            open:  parseFloat(k.o),
+            high:  parseFloat(k.h),
+            low:   parseFloat(k.l),
+            close: parseFloat(k.c),
+          };
+
+          const buf  = candleBufferRef.current;
+          if (buf.length === 0) return;
+          const last = buf[buf.length - 1];
+
+          if (candle.time === last.time) {
+            const updated = {
+              ...candle,
+              open: last.open,
+              high: Math.max(last.high, candle.high),
+              low:  Math.min(last.low,  candle.low),
+            };
+            buf[buf.length - 1] = updated;
+            candleSeriesRef.current.update(updated);
+          } else if (candle.time > last.time) {
+            buf.push(candle);
+            if (buf.length > 1000) buf.shift();
+            candleSeriesRef.current.update(candle);
+          }
+        } catch { /* ignore */ }
+      };
+
+      ws.onerror = () => {};
+
+      ws.onclose = () => {
+        if (!alive) return;
+        setWsLive(false);
+        reconnectTimer = setTimeout(connect, 3000);
+      };
+    };
+
+    connect();
+
+    return () => {
+      alive = false;
+      clearTimeout(reconnectTimer);
+      if (klineWsRef.current) {
+        klineWsRef.current.onclose = null;
+        klineWsRef.current.close();
+        klineWsRef.current = null;
+      }
+    };
+  }, [symbol, binanceInterval]);
 
   // ── 4. SMC overlays ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -199,8 +242,8 @@ const ChartPanel = () => {
       const past = now - 3600;
       [
         { price: signalData.currentPrice, color: signalData.signal === 'BUY' ? '#10b981' : '#ef4444', title: `${signalData.signal} Entry` },
-        { price: signalData.stopLoss,     color: '#ef4444',  title: 'Stop Loss'   },
-        { price: signalData.takeProfit,   color: '#10b981',  title: 'Take Profit' },
+        { price: signalData.stopLoss,     color: '#ef4444', title: 'Stop Loss'   },
+        { price: signalData.takeProfit,   color: '#10b981', title: 'Take Profit' },
       ].filter(l => l.price).forEach(level => {
         const s = chartRef.current.addSeries(LineSeries, {
           color: 'transparent', lineWidth: 0,
@@ -213,7 +256,7 @@ const ChartPanel = () => {
     }
   }, [showOrderBlocks, showFVGs, showLiquidityZones, showBosChoch, showSessionBoxes, showHTFLevels, signalData]);
 
-  // ── 5. Analyze button ────────────────────────────────────────────────────
+  // ── 5. Analyze ───────────────────────────────────────────────────────────
   const handleAnalyze = async () => {
     setAnalyzing(true);
     try {
@@ -238,7 +281,6 @@ const ChartPanel = () => {
   };
 
   const livePrice = prices[symbol]?.price;
-  const isLive    = wsStatus === 'LIVE';
 
   return (
     <div className="flex-1 flex flex-col" style={{ backgroundColor: 'var(--bg-primary)' }}>
@@ -279,7 +321,7 @@ const ChartPanel = () => {
         </div>
       )}
 
-      {/* Chart */}
+      {/* Chart container */}
       <div ref={chartContainerRef} className="flex-1 relative">
 
         {loading && (
@@ -292,31 +334,26 @@ const ChartPanel = () => {
           </div>
         )}
 
-        {error && !loading && (
-          <div className="absolute top-2 left-2 right-2 z-10 px-3 py-2 rounded text-xs"
-            style={{ backgroundColor: '#450a0a', border: '1px solid #ef4444', color: '#fca5a5' }}>
-            ⚠ {error}
-          </div>
-        )}
-
-        {/* Live price badge — updates on every WS tick */}
+        {/* Live price — top left */}
         {!loading && livePrice && (
           <div className="absolute top-3 left-3 z-10 px-3 py-1 rounded text-xs font-bold"
-            style={{ backgroundColor: '#0f172a', border: `1px solid ${isLive ? '#10b981' : '#f59e0b'}`, color: isLive ? '#10b981' : '#f59e0b' }}>
-            {isLive ? '⚡ LIVE' : wsStatus === 'FALLBACK' ? '↻ REST' : '○ …'}
+            style={{
+              backgroundColor: '#0f172a',
+              border: `1px solid ${wsLive ? '#10b981' : '#f59e0b'}`,
+              color: wsLive ? '#10b981' : '#f59e0b',
+            }}>
+            {wsLive ? '⚡ LIVE' : '○ REST'}
             &nbsp; ${Number(livePrice).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </div>
         )}
 
-        {/* WS status badge */}
+        {/* WS status — top right */}
         {!loading && (
           <div className="absolute top-3 right-3 z-10 flex items-center gap-1.5 px-2 py-1 rounded text-xs"
-            style={{ backgroundColor: '#0f172a', border: `1px solid ${isLive ? '#10b981' : wsStatus === 'FALLBACK' ? '#f59e0b' : '#3b82f6'}` }}>
-            {isLive
-              ? <><Wifi className="w-3 h-3" style={{ color: '#10b981' }} /><span style={{ color: '#10b981' }}>WebSocket Live</span></>
-              : wsStatus === 'FALLBACK'
-              ? <><WifiOff className="w-3 h-3" style={{ color: '#f59e0b' }} /><span style={{ color: '#f59e0b' }}>REST Fallback</span></>
-              : <><Wifi className="w-3 h-3" style={{ color: '#3b82f6' }} /><span style={{ color: '#3b82f6' }}>Connecting...</span></>
+            style={{ backgroundColor: '#0f172a', border: `1px solid ${wsLive ? '#10b981' : '#3b82f6'}` }}>
+            {wsLive
+              ? <><Wifi    className="w-3 h-3" style={{ color: '#10b981' }} /><span style={{ color: '#10b981' }}>WebSocket Live</span></>
+              : <><WifiOff className="w-3 h-3" style={{ color: '#3b82f6' }} /><span style={{ color: '#3b82f6' }}>Connecting...</span></>
             }
           </div>
         )}
