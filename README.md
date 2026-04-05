@@ -32,14 +32,6 @@ node server.js
 # Runs at http://localhost:4000
 ```
 
-## Deploy to Vercel
-
-1. Push this repo to GitHub
-2. Go to [vercel.com](https://vercel.com) → New Project → Import repo
-3. Set root directory to `frontend`
-4. Vercel auto-detects Create React App
-5. Deploy — done
-
 ## Environment Variables
 
 | Variable | Required | Description |
