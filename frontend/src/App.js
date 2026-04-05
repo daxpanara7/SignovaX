@@ -6,51 +6,60 @@ import ChartPanel from './components/ChartPanel';
 import SignalPanel from './components/SignalPanel';
 import BottomPanel from './components/BottomPanel';
 import LiveSignalPanel from './components/LiveSignalPanel';
-import { useRiskStore, useAlertStore } from './stores';
 import { usePriceStore } from './stores/priceStore';
 import { useChartStore } from './stores/chartStore';
-import { fetchMultiplePrices, checkProxyHealth } from './services/marketApi';
+import { useBinanceStream } from './hooks/useBinanceStream';
+import { fetchMultiplePrices } from './services/marketApi';
 
 const WATCHED = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT'];
-const PRICE_INTERVAL_MS = 3000; // refresh prices every 3 seconds
+
+// ── Fallback REST poll (only used when WebSocket fails) ──────────────────────
+const FALLBACK_INTERVAL_MS = 2000;
 
 function App() {
-  const [proxyOnline, setProxyOnline] = useState(false);
-  const pollRef = useRef(null);
+  const [wsStatus, setWsStatus] = useState('CONNECTING'); // CONNECTING | LIVE | FALLBACK
+  const fallbackRef = useRef(null);
 
   const { updatePrices, setConnectionStatus } = usePriceStore();
+  const { symbol, timeframe } = useChartStore();
 
-  // ── Poll Binance prices directly (no proxy needed) ───────────────────────
-  const pollPrices = useCallback(async () => {
-    try {
-      const map = await fetchMultiplePrices(WATCHED);
-      if (Object.keys(map).length > 0) {
-        updatePrices(map);
-        setConnectionStatus(true);
-      }
-    } catch {
-      // Binance unreachable — don't flip connection status on single failure
-    }
+  // ── WebSocket handlers ───────────────────────────────────────────────────
+  const onTicker = useCallback((sym, data) => {
+    // Called on every Binance miniTicker event (~1s per symbol)
+    updatePrices({ [sym]: data });
+    setConnectionStatus(true);
   }, [updatePrices, setConnectionStatus]);
 
-  useEffect(() => {
-    // Immediate first fetch
-    pollPrices();
-    // Then every 3 seconds
-    pollRef.current = setInterval(pollPrices, PRICE_INTERVAL_MS);
-    return () => clearInterval(pollRef.current);
-  }, [pollPrices]);
+  const onStatus = useCallback((status) => {
+    setWsStatus(status);
+    setConnectionStatus(status === 'LIVE');
 
-  // ── Check proxy health (for signal engine only) ──────────────────────────
-  useEffect(() => {
-    const check = async () => {
-      const ok = await checkProxyHealth();
-      setProxyOnline(ok);
-    };
-    check();
-    const id = setInterval(check, 15000); // recheck every 15s
-    return () => clearInterval(id);
-  }, []);
+    if (status === 'FALLBACK') {
+      // WebSocket gave up — start REST fallback at 2s
+      const poll = async () => {
+        try {
+          const map = await fetchMultiplePrices(WATCHED);
+          updatePrices(map);
+        } catch { /* ignore */ }
+      };
+      poll();
+      fallbackRef.current = setInterval(poll, FALLBACK_INTERVAL_MS);
+    } else {
+      // WebSocket recovered — stop fallback polling
+      clearInterval(fallbackRef.current);
+    }
+  }, [updatePrices]);
+
+  // ── Connect Binance WebSocket ────────────────────────────────────────────
+  // onKline is handled inside ChartPanel directly (it has its own stream)
+  useBinanceStream(WATCHED, symbol, timeframe, {
+    onTicker,
+    onStatus,
+    // onKline not needed here — ChartPanel manages its own kline stream
+  });
+
+  // Cleanup fallback on unmount
+  useEffect(() => () => clearInterval(fallbackRef.current), []);
 
   return (
     <div
@@ -63,25 +72,18 @@ function App() {
         overflow: 'hidden',
       }}
     >
-      {/* Header — live prices from priceStore (Binance) */}
-      <Header backendStatus="connected" proxyOnline={proxyOnline} />
+      <Header backendStatus="connected" wsStatus={wsStatus} />
 
-      {/* Main layout */}
       <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+        <Watchlist wsStatus={wsStatus} />
 
-        {/* Watchlist — live prices from priceStore */}
-        <Watchlist />
-
-        {/* Chart — fetches Binance candles directly */}
         <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
           <ChartPanel />
           <SignalPanel />
         </div>
 
-        {/* Live Signal Panel */}
         <div style={{
-          width: 340,
-          flexShrink: 0,
+          width: 340, flexShrink: 0,
           overflowY: 'auto',
           borderLeft: '1px solid var(--border)',
           backgroundColor: 'var(--bg-secondary)',

@@ -125,9 +125,10 @@ const Watchlist = () => {
           <div style={{
             width: 7, height: 7, borderRadius: '50%',
             backgroundColor: isConnected ? '#10b981' : '#ef4444',
+            boxShadow: isConnected ? '0 0 5px #10b981' : 'none',
           }} />
           <span style={{ fontSize: 10, color: 'var(--text-secondary)' }}>
-            {isConnected ? 'Binance Live' : 'Offline'}
+            {isConnected ? '⚡ WebSocket Live' : 'Offline'}
           </span>
         </div>
       </div>
