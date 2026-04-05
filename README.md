@@ -47,7 +47,4 @@ Browser
   │     └── kline      → real-time candle updates (chart)
   └── Binance REST API (https://api.binance.com)
         └── /api/v3/klines → historical candles on load
-
-Optional Proxy (proxy-server/)
-  └── Signal engine (EMA + RSI + ATR)
 ```
