@@ -8,7 +8,7 @@
  */
 
 const BINANCE = 'https://api.binance.com';
-const PROXY   = process.env.REACT_APP_PROXY_URL || 'http://localhost:4000';
+const PROXY   = process.env.REACT_APP_PROXY_URL || '';
 
 // ─── Generic fetch with timeout ───────────────────────────────────────────────
 async function get(url, timeoutMs = 8000) {
@@ -115,14 +115,15 @@ export async function fetchMultiplePrices(symbols = ['BTCUSDT', 'ETHUSDT']) {
  * Falls back to client-side calculation if proxy is offline
  */
 export async function fetchLiveSignal(symbol = 'BTCUSDT', interval = '15m') {
-  try {
-    // Try proxy first
-    return await get(`${PROXY}/api/signals/live?symbol=${symbol}&interval=${interval}`, 6000);
-  } catch {
-    // Proxy offline — calculate signal client-side from Binance candles
-    const candles = await fetchCandles(symbol, interval, 100);
-    return calcSignalClientSide(candles, symbol);
+  // If proxy URL is configured, try it first
+  if (PROXY) {
+    try {
+      return await get(`${PROXY}/api/signals/live?symbol=${symbol}&interval=${interval}`, 6000);
+    } catch { /* fall through to client-side */ }
   }
+  // No proxy or proxy failed — calculate in browser
+  const candles = await fetchCandles(symbol, interval, 100);
+  return calcSignalClientSide(candles, symbol);
 }
 
 // ─── Client-side signal fallback (runs in browser if proxy is down) ───────────
@@ -220,6 +221,7 @@ function calcATR(candles, period = 14) {
 
 // ─── Proxy health check ───────────────────────────────────────────────────────
 export async function checkProxyHealth() {
+  if (!PROXY) return false;
   try {
     const d = await get(`${PROXY}/health`, 3000);
     return d.status === 'ok';
