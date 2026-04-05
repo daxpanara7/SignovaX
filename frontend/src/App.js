@@ -5,6 +5,7 @@ import Watchlist from './components/Watchlist';
 import ChartPanel from './components/ChartPanel';
 import SignalPanel from './components/SignalPanel';
 import BottomPanel from './components/BottomPanel';
+import LiveSignalPanel from './components/LiveSignalPanel';
 import useWebSocket from './hooks/useWebSocket';
 import { useSignalStore, useRiskStore, useAlertStore, useChartStore, usePriceStore } from './stores';
 import { checkHealth, fetchRiskStatus, fetchSignals, login } from './services/api';
@@ -240,6 +241,11 @@ function App() {
         <div className="flex-1 flex overflow-hidden">
           <ChartPanel />
           <SignalPanel />
+        </div>
+
+        {/* Live Signal Panel — real Binance data + signal engine */}
+        <div style={{ overflowY: 'auto', padding: 12, borderLeft: '1px solid var(--border)' }}>
+          <LiveSignalPanel />
         </div>
       </div>
 
