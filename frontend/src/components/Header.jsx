@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { useChartStore, useRiskStore, useAlertStore, usePriceStore } from '../stores';
+import React, { useState } from 'react';
+import { useRiskStore, useAlertStore } from '../stores';
+import { useChartStore } from '../stores/chartStore';
+import { usePriceStore } from '../stores/priceStore';
 import { Bell, Settings, Moon, Sun, Zap, Wifi, WifiOff } from 'lucide-react';
 import SymbolSearchModal from './modals/SymbolSearchModal';
 import SettingsModal from './modals/SettingsModal';
-import { fetchSessionData } from '../services/api';
 
 const timeframes = ['1m', '5m', '15m', '1h', '4h', '1D'];
 const htfOptions = ['1h', '4h', '1D'];
@@ -17,34 +18,20 @@ const Header = ({ backendStatus = 'disconnected' }) => {
   const [liveMode, setLiveMode] = useState(false);
   const [showSymbolSearch, setShowSymbolSearch] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [session, setSession] = useState('London Open');
+
+  // Determine current session from UTC time
+  const getSession = () => {
+    const h = new Date().getUTCHours();
+    if (h >= 8 && h < 17) return 'London Open';
+    if (h >= 13 && h < 22) return 'New York Open';
+    if (h >= 0 && h < 9) return 'Tokyo Open';
+    return 'Sydney Open';
+  };
 
   // Get current price and change from price store
   const currentSymbolData = prices[symbol] || {};
   const currentPrice = currentSymbolData.price || 0;
   const priceChange = currentSymbolData.change || 0;
-
-  // Load session data when backend is connected
-  useEffect(() => {
-    if (backendStatus === 'connected') {
-      loadSessionData();
-    }
-  }, [backendStatus]);
-
-  const loadSessionData = async () => {
-    try {
-      const sessionData = await fetchSessionData();
-      if (sessionData) {
-        // Update current session based on backend data
-        const activeSession = Object.entries(sessionData).find(([_, data]) => data.active);
-        if (activeSession) {
-          setSession(`${activeSession[0].charAt(0).toUpperCase() + activeSession[0].slice(1)} Open`);
-        }
-      }
-    } catch (error) {
-      console.error('Failed to load session data:', error);
-    }
-  };
 
   const formatCurrency = (value) => {
     return new Intl.NumberFormat('en', {
@@ -197,7 +184,7 @@ const Header = ({ backendStatus = 'disconnected' }) => {
           {/* Session Badge */}
           <div data-testid="session-badge" className="flex items-center gap-1.5 px-2 py-1 rounded text-xs font-medium" style={{ backgroundColor: 'var(--bg-tertiary)' }}>
             <span className="w-2 h-2 rounded-full pulse" style={{ backgroundColor: 'var(--accent-green)' }}></span>
-            <span style={{ color: 'var(--text-primary)' }}>{session}</span>
+            <span style={{ color: 'var(--text-primary)' }}>{getSession()}</span>
           </div>
 
           {/* Live/Paper Toggle */}

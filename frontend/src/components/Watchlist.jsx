@@ -1,68 +1,55 @@
 import React, { useState } from 'react';
-import { useChartStore, usePriceStore } from '../stores';
-import { mockWatchlist } from '../data/mockData';
-import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
+import { useChartStore } from '../stores/chartStore';
+import { usePriceStore } from '../stores/priceStore';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
+
+const SYMBOLS = [
+  { symbol: 'BTCUSDT',  name: 'BTC/USDT' },
+  { symbol: 'ETHUSDT',  name: 'ETH/USDT' },
+  { symbol: 'SOLUSDT',  name: 'SOL/USDT' },
+  { symbol: 'BNBUSDT',  name: 'BNB/USDT' },
+  { symbol: 'XRPUSDT',  name: 'XRP/USDT' },
+];
+
+const Sparkline = ({ change }) => {
+  // Simple visual bar based on % change
+  const positive = change >= 0;
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 1, height: 20 }}>
+      {[0.3, 0.5, 0.4, 0.7, 0.6, 0.8, 1.0].map((h, i) => (
+        <div key={i} style={{
+          width: 4, borderRadius: 1,
+          height: `${h * 20}px`,
+          backgroundColor: positive ? '#10b981' : '#ef4444',
+          opacity: 0.4 + h * 0.6,
+        }} />
+      ))}
+    </div>
+  );
+};
 
 const Watchlist = () => {
   const [collapsed, setCollapsed] = useState(false);
   const { symbol: selectedSymbol, setSymbol } = useChartStore();
   const { prices, isConnected } = usePriceStore();
 
-  // Create watchlist with real prices
-  const watchlistWithRealPrices = mockWatchlist.map(item => {
-    const realPrice = prices[item.symbol];
-    if (realPrice) {
-      return {
-        ...item,
-        price: realPrice.price || item.price,
-        change: realPrice.change || item.change,
-        volume: realPrice.volume || 0
-      };
-    }
-    return item;
-  });
-
-  const renderSparkline = (data) => {
-    const width = 60;
-    const height = 20;
-    const min = Math.min(...data);
-    const max = Math.max(...data);
-    const range = max - min || 1;
-    
-    const points = data.map((value, index) => {
-      const x = (index / (data.length - 1)) * width;
-      const y = height - ((value - min) / range) * height;
-      return `${x},${y}`;
-    }).join(' ');
-
-    const isPositive = data[data.length - 1] > data[0];
-    
-    return (
-      <svg width={width} height={height} className="inline-block">
-        <polyline
-          points={points}
-          fill="none"
-          stroke={isPositive ? 'var(--accent-green)' : 'var(--accent-red)'}
-          strokeWidth="1.5"
-        />
-      </svg>
-    );
-  };
-
   if (collapsed) {
     return (
-      <div className="w-10 border-r border-[var(--border)] flex flex-col items-center py-4 gap-4" style={{ backgroundColor: 'var(--bg-secondary)' }}>
-        <button
-          data-testid="expand-watchlist"
-          onClick={() => setCollapsed(false)}
-          className="p-2 rounded hover:bg-[var(--bg-hover)] transition-colors"
-          style={{ color: 'var(--text-secondary)' }}
-        >
+      <div style={{
+        width: 40, borderRight: '1px solid var(--border)',
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        paddingTop: 12, gap: 8, backgroundColor: 'var(--bg-secondary)', flexShrink: 0,
+      }}>
+        <button onClick={() => setCollapsed(false)}
+          style={{ color: 'var(--text-secondary)', background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
           <ChevronRight className="w-4 h-4" />
         </button>
-        {mockWatchlist.slice(0, 5).map((item) => (
-          <div key={item.symbol} className="text-xs rotate-90 whitespace-nowrap" style={{ color: 'var(--text-secondary)' }}>
-            {item.symbol.substring(0, 3)}
+        {SYMBOLS.map(s => (
+          <div key={s.symbol} style={{
+            fontSize: 9, color: 'var(--text-secondary)',
+            writingMode: 'vertical-rl', textOrientation: 'mixed',
+          }}>
+            {s.name.split('/')[0]}
           </div>
         ))}
       </div>
@@ -70,80 +57,79 @@ const Watchlist = () => {
   }
 
   return (
-    <div className="w-45 border-r border-[var(--border)] flex flex-col" style={{ backgroundColor: 'var(--bg-secondary)' }}>
+    <div style={{
+      width: 180, borderRight: '1px solid var(--border)',
+      display: 'flex', flexDirection: 'column',
+      backgroundColor: 'var(--bg-secondary)', flexShrink: 0,
+    }}>
       {/* Header */}
-      <div className="flex items-center justify-between p-3 border-b border-[var(--border)]">
-        <span className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>WATCHLIST</span>
-        <div className="flex items-center gap-1">
-          <button data-testid="add-symbol" className="p-1 rounded hover:bg-[var(--bg-hover)] transition-colors" style={{ color: 'var(--text-secondary)' }}>
-            <Plus className="w-3.5 h-3.5" />
-          </button>
-          <button
-            data-testid="collapse-watchlist"
-            onClick={() => setCollapsed(true)}
-            className="p-1 rounded hover:bg-[var(--bg-hover)] transition-colors"
-            style={{ color: 'var(--text-secondary)' }}
-          >
-            <ChevronLeft className="w-3.5 h-3.5" />
-          </button>
-        </div>
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        padding: '10px 12px', borderBottom: '1px solid var(--border)',
+      }}>
+        <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-primary)', letterSpacing: 1 }}>
+          WATCHLIST
+        </span>
+        <button onClick={() => setCollapsed(true)}
+          style={{ color: 'var(--text-secondary)', background: 'none', border: 'none', cursor: 'pointer' }}>
+          <ChevronLeft className="w-3.5 h-3.5" />
+        </button>
       </div>
 
-      {/* Watchlist Items */}
-      <div className="flex-1 overflow-y-auto">
-        {watchlistWithRealPrices.map((item) => (
-          <button
-            key={item.symbol}
-            data-testid={`watchlist-item-${item.symbol}`}
-            onClick={() => setSymbol(item.symbol)}
-            className="w-full p-3 border-b border-[var(--border)] hover:bg-[var(--bg-hover)] transition-colors text-left"
-            style={{
-              backgroundColor: selectedSymbol === item.symbol ? 'var(--bg-tertiary)' : 'transparent',
-              borderLeft: selectedSymbol === item.symbol ? '3px solid var(--accent-blue)' : '3px solid transparent'
-            }}
-          >
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>{item.name}</span>
-              <span className="text-xs flex items-center gap-0.5" style={{ color: item.change >= 0 ? 'var(--accent-green)' : 'var(--accent-red)' }}>
-                {item.change >= 0 ? '▲' : '▼'} {Math.abs(item.change)}%
-              </span>
-            </div>
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-sm monospace font-medium" style={{ color: 'var(--text-primary)' }}>
-                ${item.price.toLocaleString('en', { minimumFractionDigits: 2 })}
-              </span>
-            </div>
-            <div className="flex items-center justify-between">
-              {renderSparkline(item.sparkline)}
-            </div>
-            {item.signal !== 'none' && (
-              <div className="mt-2 flex items-center gap-1">
-                <span
-                  className="w-1.5 h-1.5 rounded-full"
-                  style={{
-                    backgroundColor: item.signal === 'buy' ? 'var(--accent-green)' : item.signal === 'sell' ? 'var(--accent-red)' : 'var(--text-muted)'
-                  }}
-                ></span>
-                <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                  {item.signal === 'buy' ? 'Active Signal' : item.signal === 'sell' ? 'Sell Signal' : ''}
+      {/* Symbol rows */}
+      <div style={{ flex: 1, overflowY: 'auto' }}>
+        {SYMBOLS.map(({ symbol, name }) => {
+          const live = prices[symbol];
+          const price = live?.price ?? null;
+          const change = live?.change ?? null;
+          const isSelected = selectedSymbol === symbol;
+          const positive = change == null ? true : change >= 0;
+
+          return (
+            <button key={symbol} onClick={() => setSymbol(symbol)}
+              style={{
+                width: '100%', padding: '10px 12px',
+                borderBottom: '1px solid var(--border)',
+                borderLeft: isSelected ? '3px solid var(--accent-blue)' : '3px solid transparent',
+                backgroundColor: isSelected ? 'var(--bg-tertiary)' : 'transparent',
+                textAlign: 'left', cursor: 'pointer', display: 'block',
+              }}>
+              {/* Symbol name + change */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-primary)' }}>
+                  {name}
+                </span>
+                <span style={{ fontSize: 10, color: positive ? '#10b981' : '#ef4444' }}>
+                  {change == null ? '—' : `${positive ? '+' : ''}${change.toFixed(2)}%`}
                 </span>
               </div>
-            )}
-          </button>
-        ))}
+
+              {/* Price */}
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6, fontFamily: 'monospace' }}>
+                {price == null
+                  ? <span style={{ color: 'var(--text-secondary)', fontSize: 11 }}>Loading...</span>
+                  : `$${price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: price > 100 ? 2 : 4 })}`
+                }
+              </div>
+
+              {/* Sparkline */}
+              <Sparkline change={change ?? 0} />
+            </button>
+          );
+        })}
       </div>
 
-      {/* Market Status */}
-      <div className="p-3 border-t border-[var(--border)]">
-        <div className="flex items-center gap-2 mb-2">
-          <span className="w-2 h-2 rounded-full" style={{ backgroundColor: isConnected ? 'var(--accent-green)' : 'var(--accent-red)' }}></span>
-          <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-            {isConnected ? 'Live Data' : 'Disconnected'}
+      {/* Footer status */}
+      <div style={{ padding: '8px 12px', borderTop: '1px solid var(--border)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <div style={{
+            width: 7, height: 7, borderRadius: '50%',
+            backgroundColor: isConnected ? '#10b981' : '#ef4444',
+          }} />
+          <span style={{ fontSize: 10, color: 'var(--text-secondary)' }}>
+            {isConnected ? 'Binance Live' : 'Offline'}
           </span>
         </div>
-        <button data-testid="add-symbol-footer" className="w-full py-2 text-xs font-medium rounded transition-colors" style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}>
-          + Add Symbol
-        </button>
       </div>
     </div>
   );
