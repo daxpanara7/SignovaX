@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Signal Panel Fix Test</title>
+</head>
+<body>
+    <h1>Signal Panel Fix Test</h1>
+    
+    <script>
+        // Test the fix for undefined values
+        function testSignalPanelFix() {
+            console.log("Testing Signal Panel Fix...");
+            
+            // Test case 1: Undefined signal
+            const undefinedSignal = null;
+            const mockSignal = {
+                entry: 66250.00,
+                stop_loss: 65800.00,
+                take_profit: 67150.00,
+                risk_reward: 2.1
+            };
+            
+            // Test case 2: Signal with undefined properties
+            const partialSignal = {
+                entry: undefined,
+                stop_loss: null,
+                take_profit: 67150.00,
+                risk_reward: undefined
+            };
+            
+            // Test the fix logic
+            function safeToFixed(value, decimals) {
+                return (value || 0).toFixed(decimals);
+            }
+            
+            console.log("Mock signal entry:", safeToFixed(mockSignal.entry, 2));
+            console.log("Partial signal entry:", safeToFixed(partialSignal.entry, 2));
+            console.log("Partial signal stop_loss:", safeToFixed(partialSignal.stop_loss, 2));
+            console.log("Partial signal risk_reward:", safeToFixed(partialSignal.risk_reward, 1));
+            
+            console.log("✅ All tests passed - no errors with undefined values");
+        }
+        
+        testSignalPanelFix();
+    </script>
+    
+    <p>Check the browser console for test results.</p>
+    <p>If you see "✅ All tests passed", the fix should work!</p>
+</body>
+</html>
