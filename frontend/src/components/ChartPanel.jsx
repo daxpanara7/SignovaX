@@ -10,6 +10,9 @@ import { Camera, RotateCcw, TrendingUp, Wifi, WifiOff } from 'lucide-react';
 // Map UI timeframe labels → Binance interval strings
 const TF_MAP = { '1m': '1m', '5m': '5m', '15m': '15m', '1h': '1h', '4h': '4h', '1D': '1d' };
 
+// Auto-refresh candles every 30s
+const CANDLE_REFRESH_MS = 30000;
+
 const ChartPanel = () => {
   const chartContainerRef = useRef(null);
   const chartRef = useRef(null);
@@ -34,36 +37,33 @@ const ChartPanel = () => {
   const [proxyOnline, setProxyOnline] = useState(null); // null=checking, true, false
   const [error, setError] = useState(null);
 
-  // ── Load candles from Binance via proxy ──────────────────────────────────
+  const chartDataRef = useRef([]);
+  const refreshTimerRef = useRef(null);
+
+  // ── Load candles from Binance directly ───────────────────────────────────
   const loadCandles = useCallback(async () => {
     setLoading(true);
     setError(null);
     const binanceInterval = TF_MAP[timeframe] || '15m';
     try {
-      const result = await fetchCandles(symbol, binanceInterval, 300);
-      if (result?.candles?.length > 0) {
-        // Binance returns ms timestamps — lightweight-charts needs seconds
-        const formatted = result.candles.map(c => ({
-          time: Math.floor(c.time / 1000),
-          open: c.open,
-          high: c.high,
-          low: c.low,
-          close: c.close,
-        }));
-        formatted.sort((a, b) => a.time - b.time);
-        setChartData(formatted);
+      // fetchCandles now calls Binance directly — no proxy needed
+      const candles = await fetchCandles(symbol, binanceInterval, 300);
+      if (candles?.length > 0) {
+        candles.sort((a, b) => a.time - b.time);
+        setChartData(candles);
+        chartDataRef.current = candles;
         setProxyOnline(true);
         if (candleSeriesRef.current) {
-          candleSeriesRef.current.setData(formatted);
+          candleSeriesRef.current.setData(candles);
           chartRef.current?.timeScale().fitContent();
         }
       }
     } catch (err) {
-      setError('Proxy offline — showing mock data. Start proxy: cd proxy-server && node server.js');
+      setError('Binance unreachable — showing mock data');
       setProxyOnline(false);
-      // Fallback to mock
       const mock = generateMockCandles(300, 67000);
       setChartData(mock);
+      chartDataRef.current = mock;
       if (candleSeriesRef.current) {
         candleSeriesRef.current.setData(mock);
         chartRef.current?.timeScale().fitContent();
@@ -73,23 +73,28 @@ const ChartPanel = () => {
     }
   }, [symbol, timeframe]);
 
-  // Load on mount + symbol/timeframe change
-  useEffect(() => { loadCandles(); }, [loadCandles]);
-
-  // ── Update last candle with live price from priceStore ───────────────────
+  // Load on mount + symbol/timeframe change + auto-refresh every 30s
   useEffect(() => {
-    if (!candleSeriesRef.current || chartData.length === 0 || !proxyOnline) return;
+    loadCandles();
+    clearInterval(refreshTimerRef.current);
+    refreshTimerRef.current = setInterval(loadCandles, CANDLE_REFRESH_MS);
+    return () => clearInterval(refreshTimerRef.current);
+  }, [loadCandles]);
+
+  // ── Tick last candle with live price every 3s (from priceStore) ────────
+  useEffect(() => {
+    if (!candleSeriesRef.current || chartDataRef.current.length === 0) return;
     const live = prices[symbol];
     if (!live?.price) return;
-    const last = chartData[chartData.length - 1];
+    const last = chartDataRef.current[chartDataRef.current.length - 1];
     candleSeriesRef.current.update({
-      time: last.time,
-      open: last.open,
-      high: Math.max(last.high, live.price),
-      low: Math.min(last.low, live.price),
+      time:  last.time,
+      open:  last.open,
+      high:  Math.max(last.high, live.price),
+      low:   Math.min(last.low,  live.price),
       close: live.price,
     });
-  }, [prices, symbol, chartData, proxyOnline]);
+  }, [prices, symbol]);
 
   // ── Initialize TradingView Lightweight Chart ─────────────────────────────
   useEffect(() => {
@@ -308,13 +313,12 @@ const ChartPanel = () => {
           </div>
         )}
 
-        {/* Data source badge */}
         {!loading && (
           <div className="absolute top-3 right-3 z-10 flex items-center gap-1.5 px-2 py-1 rounded text-xs"
             style={{ backgroundColor: '#0f172a', border: `1px solid ${proxyOnline ? '#10b981' : '#ef4444'}` }}>
             {proxyOnline
               ? <><Wifi className="w-3 h-3" style={{ color: '#10b981' }} /><span style={{ color: '#10b981' }}>Binance Live</span></>
-              : <><WifiOff className="w-3 h-3" style={{ color: '#ef4444' }} /><span style={{ color: '#ef4444' }}>Mock Data</span></>
+              : <><WifiOff className="w-3 h-3" style={{ color: '#ef4444' }} /><span style={{ color: '#ef4444' }}>Offline / Mock</span></>
             }
           </div>
         )}

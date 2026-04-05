@@ -13,9 +13,16 @@ const cache = new NodeCache({
   checkperiod: 30,
 });
 
-// CORS — allow frontend origin
+// CORS — allow any localhost origin (dev)
 app.use(cors({
-  origin: process.env.ALLOWED_ORIGIN || 'http://localhost:3000',
+  origin: (origin, callback) => {
+    // Allow requests with no origin (curl, Postman) or any localhost
+    if (!origin || origin.includes('localhost') || origin.includes('127.0.0.1')) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   methods: ['GET', 'POST'],
 }));
 app.use(express.json());
