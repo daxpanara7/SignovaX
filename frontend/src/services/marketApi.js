@@ -108,20 +108,68 @@ export async function fetchMultiplePrices(symbols = ['BTCUSDT', 'ETHUSDT']) {
   return map;
 }
 
-// ─── SIGNAL ENGINE — via proxy (runs EMA/RSI/ATR logic server-side) ───────────
+// ─── SIGNAL ENGINE — ML model API → proxy fallback → client-side fallback ─────
+
+const ML_API = process.env.REACT_APP_ML_API_URL || 'http://localhost:8000';
 
 /**
- * Get live BUY/SELL/HOLD signal from proxy
- * Falls back to client-side calculation if proxy is offline
+ * Get live BUY/SELL/HOLD signal.
+ * Priority: ML API → proxy → client-side
  */
 export async function fetchLiveSignal(symbol = 'BTCUSDT', interval = '15m') {
-  // If proxy URL is configured, try it first
+  // 1. Try ML API (FastAPI /predict)
+  try {
+    const candles = await fetchCandles(symbol, interval, 300);
+    const payload = {
+      candles: candles.map(c => ({
+        open_time: new Date(c.time * 1000).toISOString(),
+        open:   c.open,
+        high:   c.high,
+        low:    c.low,
+        close:  c.close,
+        volume: c.volume,
+      })),
+      atr_sl_multiplier: 1.5,
+    };
+    const result = await post(`${ML_API}/predict`, payload, 10000);
+    return {
+      symbol,
+      signal:       result.signal,
+      confidence:   result.confidence,
+      currentPrice: result.entry,
+      entry:        result.entry,
+      stopLoss:     result.stop_loss,
+      takeProfit:   result.target,
+      riskReward:   result.rr_ratio,
+      xgbPred:      result.xgb_pred,
+      rfPred:       result.rf_pred,
+      smcPred:      result.smc_pred,
+      // keep indicator fields for display (from last candle)
+      ema20:     candles[candles.length - 1]?.close ?? 0,
+      ema50:     candles[candles.length - 1]?.close ?? 0,
+      rsi:       50,
+      atr:       Math.abs(result.entry - result.stop_loss),
+      swingHigh: Math.max(...candles.slice(-20).map(c => c.high)),
+      swingLow:  Math.min(...candles.slice(-20).map(c => c.low)),
+      reasoning: [
+        `XGBoost: ${result.xgb_pred}`,
+        `Random Forest: ${result.rf_pred}`,
+        `SMC Filter: ${result.smc_pred}`,
+        `Ensemble confidence: ${result.confidence}%`,
+      ],
+      timestamp: new Date().toISOString(),
+      source: 'ml',
+    };
+  } catch { /* fall through */ }
+
+  // 2. Try proxy
   if (PROXY) {
     try {
       return await get(`${PROXY}/api/signals/live?symbol=${symbol}&interval=${interval}`, 6000);
-    } catch { /* fall through to client-side */ }
+    } catch { /* fall through */ }
   }
-  // No proxy or proxy failed — calculate in browser
+
+  // 3. Client-side fallback
   const candles = await fetchCandles(symbol, interval, 100);
   return calcSignalClientSide(candles, symbol);
 }
