@@ -15,7 +15,8 @@ import pandas as pd
 from features import build_features, FEATURE_COLS
 from model import SignovaEnsemble
 
-MODEL_PATH = "models/ensemble.joblib"
+import os
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "models", "ensemble.joblib")
 model: SignovaEnsemble = None
 
 @asynccontextmanager
@@ -24,15 +25,9 @@ async def lifespan(app: FastAPI):
     try:
         model = SignovaEnsemble.load(MODEL_PATH)
         print("Model loaded.")
-    except Exception:
-        print("No model found — training now (this takes ~5 min on first boot)...")
-        try:
-            import subprocess, sys
-            subprocess.run([sys.executable, "train.py"], check=True)
-            model = SignovaEnsemble.load(MODEL_PATH)
-            print("Model trained and loaded.")
-        except Exception as e:
-            print(f"Auto-train failed: {e} — API will return 503 until model is available.")
+    except Exception as e:
+        print(f"Warning: could not load model — {e}")
+        print("Deploy with models/ensemble.joblib committed to the repo.")
     yield
 
 app = FastAPI(title="SignovaX Signal API", version="1.0.0", lifespan=lifespan)
