@@ -5,7 +5,7 @@ import { usePriceStore } from '../stores/priceStore';
 
 const SYMBOLS   = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT'];
 const INTERVALS = ['1m', '5m', '15m', '1h', '4h'];
-const SIGNAL_THROTTLE_MS = 15000;
+const SIGNAL_THROTTLE_MS = 30000;
 
 function Badge({ signal }) {
   const cfg = {
@@ -47,10 +47,13 @@ export default function LiveSignalPanel() {
 
   const lastSignalTime = useRef(0);
   const fallbackTimer  = useRef(null);
+  const loadingRef     = useRef(false);
 
   useEffect(() => { setSymbol(chartSymbol); }, [chartSymbol]);
 
   const refresh = useCallback(async (sym, intv) => {
+    if (loadingRef.current) return; // prevent concurrent calls
+    loadingRef.current = true;
     setLoading(true);
     setError(null);
     try {
@@ -66,8 +69,9 @@ export default function LiveSignalPanel() {
       setError('Fetch failed — retrying...');
     } finally {
       setLoading(false);
+      loadingRef.current = false;
     }
-  }, []);
+  }, []); // stable — no deps needed, sym/intv passed as args
 
   useEffect(() => {
     refresh(symbol, interval);
@@ -81,10 +85,12 @@ export default function LiveSignalPanel() {
 
   useEffect(() => {
     if (!livePrice) return;
-    if (Date.now() - lastSignalTime.current >= SIGNAL_THROTTLE_MS) {
+    const now = Date.now();
+    if (now - lastSignalTime.current >= SIGNAL_THROTTLE_MS) {
+      lastSignalTime.current = now; // set immediately to prevent re-entry
       refresh(symbol, interval);
     }
-  }, [livePrice]); // eslint-disable-line
+  }, [livePrice, symbol, interval, refresh]);
 
   const fmt = (n, d = 2) =>
     n != null

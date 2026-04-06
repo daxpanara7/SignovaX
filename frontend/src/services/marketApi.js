@@ -112,6 +112,20 @@ export async function fetchMultiplePrices(symbols = ['BTCUSDT', 'ETHUSDT']) {
 
 const ML_API = process.env.REACT_APP_ML_API_URL || 'http://localhost:8000';
 
+// Cache last candles to avoid hammering Binance
+const _candleCache = {};
+
+async function fetchCandlesCached(symbol, interval, limit) {
+  const key = `${symbol}_${interval}`;
+  const now = Date.now();
+  if (_candleCache[key] && now - _candleCache[key].ts < 10000) {
+    return _candleCache[key].data;
+  }
+  const data = await fetchCandles(symbol, interval, limit);
+  _candleCache[key] = { data, ts: now };
+  return data;
+}
+
 /**
  * Get live BUY/SELL/HOLD signal.
  * Priority: ML API → proxy → client-side
@@ -119,7 +133,7 @@ const ML_API = process.env.REACT_APP_ML_API_URL || 'http://localhost:8000';
 export async function fetchLiveSignal(symbol = 'BTCUSDT', interval = '15m') {
   // 1. Try ML API (FastAPI /predict) — short timeout so fallback is fast
   try {
-    const candles = await fetchCandles(symbol, interval, 300);
+    const candles = await fetchCandlesCached(symbol, interval, 300);
     const payload = {
       candles: candles.map(c => ({
         open_time: new Date(c.time * 1000).toISOString(),
@@ -131,7 +145,7 @@ export async function fetchLiveSignal(symbol = 'BTCUSDT', interval = '15m') {
       })),
       atr_sl_multiplier: 1.5,
     };
-    const result = await post(`${ML_API}/predict`, payload, 5000); // 5s timeout
+    const result = await post(`${ML_API}/predict`, payload, 15000); // 15s timeout
     return {
       symbol,
       signal:       result.signal,
@@ -169,7 +183,7 @@ export async function fetchLiveSignal(symbol = 'BTCUSDT', interval = '15m') {
   }
 
   // 3. Client-side fallback
-  const candles = await fetchCandles(symbol, interval, 100);
+  const candles = await fetchCandlesCached(symbol, interval, 100);
   return calcSignalClientSide(candles, symbol);
 }
 
