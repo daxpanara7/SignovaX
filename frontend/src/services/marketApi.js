@@ -117,7 +117,7 @@ const ML_API = process.env.REACT_APP_ML_API_URL || 'http://localhost:8000';
  * Priority: ML API → proxy → client-side
  */
 export async function fetchLiveSignal(symbol = 'BTCUSDT', interval = '15m') {
-  // 1. Try ML API (FastAPI /predict)
+  // 1. Try ML API (FastAPI /predict) — short timeout so fallback is fast
   try {
     const candles = await fetchCandles(symbol, interval, 300);
     const payload = {
@@ -131,7 +131,7 @@ export async function fetchLiveSignal(symbol = 'BTCUSDT', interval = '15m') {
       })),
       atr_sl_multiplier: 1.5,
     };
-    const result = await post(`${ML_API}/predict`, payload, 10000);
+    const result = await post(`${ML_API}/predict`, payload, 5000); // 5s timeout
     return {
       symbol,
       signal:       result.signal,
@@ -144,7 +144,6 @@ export async function fetchLiveSignal(symbol = 'BTCUSDT', interval = '15m') {
       xgbPred:      result.xgb_pred,
       rfPred:       result.rf_pred,
       smcPred:      result.smc_pred,
-      // keep indicator fields for display (from last candle)
       ema20:     candles[candles.length - 1]?.close ?? 0,
       ema50:     candles[candles.length - 1]?.close ?? 0,
       rsi:       50,

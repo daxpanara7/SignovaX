@@ -24,8 +24,15 @@ async def lifespan(app: FastAPI):
     try:
         model = SignovaEnsemble.load(MODEL_PATH)
         print("Model loaded.")
-    except Exception as e:
-        print(f"Warning: could not load model — {e}")
+    except Exception:
+        print("No model found — training now (this takes ~5 min on first boot)...")
+        try:
+            import subprocess, sys
+            subprocess.run([sys.executable, "train.py"], check=True)
+            model = SignovaEnsemble.load(MODEL_PATH)
+            print("Model trained and loaded.")
+        except Exception as e:
+            print(f"Auto-train failed: {e} — API will return 503 until model is available.")
     yield
 
 app = FastAPI(title="SignovaX Signal API", version="1.0.0", lifespan=lifespan)
