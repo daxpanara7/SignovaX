@@ -1,11 +1,10 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { fetchLiveSignal, fetchTicker24 } from '../services/marketApi';
 import { useChartStore } from '../stores/chartStore';
 import { usePriceStore } from '../stores/priceStore';
 
 const SYMBOLS   = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT'];
 const INTERVALS = ['1m', '5m', '15m', '1h', '4h'];
-const SIGNAL_THROTTLE_MS = 30000;
 
 function Badge({ signal }) {
   const cfg = {
@@ -37,71 +36,71 @@ export default function LiveSignalPanel() {
   const { symbol: chartSymbol } = useChartStore();
   const { prices } = usePriceStore();
 
-  const [symbol,    setSymbol]    = useState(chartSymbol || 'BTCUSDT');
+  const [symbol,    setSymbol]    = useState('BTCUSDT');
   const [interval,  setInterval]  = useState('15m');
   const [signal,    setSignal]    = useState(null);
   const [ticker,    setTicker]    = useState(null);
-  const [loading,   setLoading]   = useState(true);
+  const [loading,   setLoading]   = useState(false);
   const [error,     setError]     = useState(null);
   const [updatedAt, setUpdatedAt] = useState(null);
 
-  const lastSignalTime = useRef(0);
-  const fallbackTimer  = useRef(null);
-  const loadingRef     = useRef(false);
+  // Use refs to avoid stale closures and prevent re-render loops
+  const isFetching  = useRef(false);
+  const timerRef    = useRef(null);
+  const symbolRef   = useRef(symbol);
+  const intervalRef = useRef(interval);
 
-  useEffect(() => { setSymbol(chartSymbol); }, [chartSymbol]);
+  // Keep refs in sync
+  symbolRef.current   = symbol;
+  intervalRef.current = interval;
 
-  const refresh = useCallback(async (sym, intv) => {
-    if (loadingRef.current) return; // prevent concurrent calls
-    loadingRef.current = true;
+  // Sync symbol from chart store — only on mount and chartSymbol change
+  useEffect(() => {
+    if (chartSymbol && chartSymbol !== symbolRef.current) {
+      setSymbol(chartSymbol);
+    }
+  }, [chartSymbol]);
+
+  // Core fetch function — uses refs, never causes re-render loops
+  const doFetch = () => {
+    if (isFetching.current) return;
+    isFetching.current = true;
     setLoading(true);
     setError(null);
-    try {
-      const [sig, tick] = await Promise.all([
-        fetchLiveSignal(sym, intv),
-        fetchTicker24(sym),
-      ]);
-      setSignal(sig);
-      setTicker(tick);
-      setUpdatedAt(new Date());
-      lastSignalTime.current = Date.now();
-    } catch {
-      setError('Fetch failed — retrying...');
-    } finally {
-      setLoading(false);
-      loadingRef.current = false;
-    }
-  }, []); // stable — no deps needed, sym/intv passed as args
 
+    const sym  = symbolRef.current;
+    const intv = intervalRef.current;
+
+    Promise.all([fetchLiveSignal(sym, intv), fetchTicker24(sym)])
+      .then(([sig, tick]) => {
+        setSignal(sig);
+        setTicker(tick);
+        setUpdatedAt(new Date());
+      })
+      .catch(() => setError('Fetch failed'))
+      .finally(() => {
+        setLoading(false);
+        isFetching.current = false;
+      });
+  };
+
+  // Start polling — only re-runs when symbol or interval changes
   useEffect(() => {
-    refresh(symbol, interval);
-    clearInterval(fallbackTimer.current);
-    fallbackTimer.current = setInterval(() => refresh(symbol, interval), 30000);
-    return () => clearInterval(fallbackTimer.current);
-  }, [symbol, interval, refresh]);
+    doFetch();
+    timerRef.current = setInterval(doFetch, 60000);
+    return () => clearInterval(timerRef.current);
+  }, [symbol, interval]); // eslint-disable-line
 
   const livePrice  = prices[symbol]?.price;
   const liveChange = prices[symbol]?.change;
-
-  useEffect(() => {
-    if (!livePrice) return;
-    const now = Date.now();
-    if (now - lastSignalTime.current >= SIGNAL_THROTTLE_MS) {
-      lastSignalTime.current = now; // set immediately to prevent re-entry
-      refresh(symbol, interval);
-    }
-  }, [livePrice, symbol, interval, refresh]);
 
   const fmt = (n, d = 2) =>
     n != null
       ? parseFloat(n).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d })
       : '—';
 
-  const changeColor = liveChange != null
-    ? liveChange >= 0 ? '#10b981' : '#ef4444'
-    : '#94a3b8';
-
-  const isHighConf = signal && signal.confidence >= 75 && signal.signal !== 'HOLD';
+  const changeColor = liveChange >= 0 ? '#10b981' : '#ef4444';
+  const isHighConf  = signal && signal.confidence >= 75 && signal.signal !== 'HOLD';
 
   return (
     <div style={{ padding: 16, fontFamily: 'monospace', color: '#e2e8f0', minHeight: '100%' }}>
@@ -133,7 +132,7 @@ export default function LiveSignalPanel() {
           style={{ background: '#1e293b', color: '#e2e8f0', border: '1px solid #334155', borderRadius: 5, padding: '5px 6px', fontSize: 11 }}>
           {INTERVALS.map(i => <option key={i}>{i}</option>)}
         </select>
-        <button onClick={() => refresh(symbol, interval)} disabled={loading}
+        <button onClick={doFetch} disabled={loading}
           style={{ background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 5, padding: '5px 10px', fontSize: 12, cursor: 'pointer', opacity: loading ? 0.5 : 1 }}>
           ↻
         </button>
@@ -154,7 +153,7 @@ export default function LiveSignalPanel() {
         </div>
       )}
 
-      {/* Live price */}
+      {/* Live price — from WebSocket, no fetch needed */}
       {livePrice && (
         <div style={{ textAlign: 'center', marginBottom: 14, padding: '10px 0', borderBottom: '1px solid #1e293b' }}>
           <div style={{ fontSize: 26, fontWeight: 700, color: '#f1f5f9' }}>
@@ -171,21 +170,14 @@ export default function LiveSignalPanel() {
         </div>
       )}
 
-      {/* Signal block */}
+      {/* Signal */}
       {signal && (
         <>
-          {/* Badge + confidence */}
           <div style={{ textAlign: 'center', marginBottom: 14 }}>
             <div style={{
-              display: 'inline-block',
-              padding: isHighConf ? 4 : 0,
-              borderRadius: 10,
-              background: isHighConf
-                ? signal.signal === 'BUY' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)'
-                : 'transparent',
-              border: isHighConf
-                ? signal.signal === 'BUY' ? '1px solid #10b981' : '1px solid #ef4444'
-                : '1px solid transparent',
+              display: 'inline-block', padding: isHighConf ? 4 : 0, borderRadius: 10,
+              background: isHighConf ? (signal.signal === 'BUY' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)') : 'transparent',
+              border: isHighConf ? (signal.signal === 'BUY' ? '1px solid #10b981' : '1px solid #ef4444') : '1px solid transparent',
             }}>
               <Badge signal={signal.signal} />
             </div>
@@ -193,30 +185,22 @@ export default function LiveSignalPanel() {
             <div style={{ marginTop: 10, padding: '0 8px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                 <span style={{ fontSize: 10, color: '#64748b' }}>Confidence</span>
-                <span style={{
-                  fontSize: 13, fontWeight: 700,
-                  color: signal.confidence >= 75 ? '#10b981' : signal.confidence >= 60 ? '#f59e0b' : '#ef4444',
-                }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: signal.confidence >= 75 ? '#10b981' : signal.confidence >= 60 ? '#f59e0b' : '#ef4444' }}>
                   {signal.confidence}%
                   {isHighConf && <span style={{ fontSize: 9, marginLeft: 4, color: '#10b981' }}>✓ HIGH</span>}
                 </span>
               </div>
               <div style={{ height: 5, background: '#1e293b', borderRadius: 3, overflow: 'hidden' }}>
                 <div style={{
-                  height: '100%', borderRadius: 3,
-                  width: `${signal.confidence}%`,
+                  height: '100%', borderRadius: 3, width: `${signal.confidence}%`,
                   background: signal.confidence >= 75 ? '#10b981' : signal.confidence >= 60 ? '#f59e0b' : '#ef4444',
                   transition: 'width 0.4s ease',
                 }} />
               </div>
             </div>
 
-            {signal.source === 'ml' && (
-              <div style={{ marginTop: 6, fontSize: 9, color: '#3b82f6' }}>🤖 ML Ensemble Active</div>
-            )}
-            {signal.source === 'client' && (
-              <div style={{ marginTop: 6, fontSize: 9, color: '#f59e0b' }}>⚠ Offline — EMA/RSI fallback</div>
-            )}
+            {signal.source === 'ml' && <div style={{ marginTop: 6, fontSize: 9, color: '#3b82f6' }}>🤖 ML Ensemble Active</div>}
+            {signal.source === 'client' && <div style={{ marginTop: 6, fontSize: 9, color: '#f59e0b' }}>⚠ Offline — EMA/RSI fallback</div>}
           </div>
 
           {/* ML model agreement */}
@@ -235,8 +219,7 @@ export default function LiveSignalPanel() {
               <div style={{ fontSize: 9, color: '#475569', letterSpacing: 1, marginBottom: 4, textTransform: 'uppercase' }}>Indicators</div>
               <Row label="EMA 20"     value={fmt(signal.ema20, 2)} />
               <Row label="EMA 50"     value={fmt(signal.ema50, 2)} />
-              <Row label="RSI (14)"   value={fmt(signal.rsi, 1)}
-                color={signal.rsi > 70 ? '#ef4444' : signal.rsi < 30 ? '#10b981' : '#e2e8f0'} />
+              <Row label="RSI (14)"   value={fmt(signal.rsi, 1)} color={signal.rsi > 70 ? '#ef4444' : signal.rsi < 30 ? '#10b981' : '#e2e8f0'} />
               <Row label="ATR (14)"   value={fmt(signal.atr, 2)} />
               <Row label="Swing High" value={fmt(signal.swingHigh, 2)} color="#ef4444" />
               <Row label="Swing Low"  value={fmt(signal.swingLow, 2)}  color="#10b981" />
@@ -266,11 +249,8 @@ export default function LiveSignalPanel() {
 
       {/* Footer */}
       <div style={{ fontSize: 9, color: '#334155', display: 'flex', justifyContent: 'space-between', marginTop: 10 }}>
-        <span>{updatedAt ? `Signal: ${updatedAt.toLocaleTimeString()}` : ''}</span>
+        <span>{updatedAt ? `Updated: ${updatedAt.toLocaleTimeString()}` : ''}</span>
         <span style={{ color: '#10b981' }}>⚡ Price: WebSocket</span>
-      </div>
-      <div style={{ marginTop: 4, fontSize: 9, color: '#1e293b', textAlign: 'center' }}>
-        Binance Public API · No key required
       </div>
     </div>
   );
