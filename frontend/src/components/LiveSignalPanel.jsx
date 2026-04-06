@@ -5,7 +5,6 @@ import { usePriceStore } from '../stores/priceStore';
 
 const SYMBOLS   = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT'];
 const INTERVALS = ['1m', '5m', '15m', '1h', '4h'];
-// Recalculate signal at most every 15s when price ticks arrive
 const SIGNAL_THROTTLE_MS = 15000;
 
 function Badge({ signal }) {
@@ -49,7 +48,6 @@ export default function LiveSignalPanel() {
   const lastSignalTime = useRef(0);
   const fallbackTimer  = useRef(null);
 
-  // Sync symbol with chart when user clicks watchlist
   useEffect(() => { setSymbol(chartSymbol); }, [chartSymbol]);
 
   const refresh = useCallback(async (sym, intv) => {
@@ -71,7 +69,6 @@ export default function LiveSignalPanel() {
     }
   }, []);
 
-  // Load on symbol / interval change + 30s fallback timer
   useEffect(() => {
     refresh(symbol, interval);
     clearInterval(fallbackTimer.current);
@@ -79,7 +76,6 @@ export default function LiveSignalPanel() {
     return () => clearInterval(fallbackTimer.current);
   }, [symbol, interval, refresh]);
 
-  // Recalculate signal when WebSocket price ticks arrive (throttled)
   const livePrice  = prices[symbol]?.price;
   const liveChange = prices[symbol]?.change;
 
@@ -98,6 +94,8 @@ export default function LiveSignalPanel() {
   const changeColor = liveChange != null
     ? liveChange >= 0 ? '#10b981' : '#ef4444'
     : '#94a3b8';
+
+  const isHighConf = signal && signal.confidence >= 75 && signal.signal !== 'HOLD';
 
   return (
     <div style={{ padding: 16, fontFamily: 'monospace', color: '#e2e8f0', minHeight: '100%' }}>
@@ -142,15 +140,15 @@ export default function LiveSignalPanel() {
         </div>
       )}
 
-      {/* Loading skeleton */}
+      {/* Loading */}
       {loading && !signal && (
         <div style={{ textAlign: 'center', padding: '30px 0', color: '#475569', fontSize: 12 }}>
           <div style={{ marginBottom: 8 }}>Fetching {symbol}...</div>
-          <div style={{ fontSize: 10 }}>Calculating EMA · RSI · ATR</div>
+          <div style={{ fontSize: 10 }}>Running ML Ensemble · XGBoost · SMC</div>
         </div>
       )}
 
-      {/* Live price — from WebSocket priceStore (updates every ~1s) */}
+      {/* Live price */}
       {livePrice && (
         <div style={{ textAlign: 'center', marginBottom: 14, padding: '10px 0', borderBottom: '1px solid #1e293b' }}>
           <div style={{ fontSize: 26, fontWeight: 700, color: '#f1f5f9' }}>
@@ -167,47 +165,93 @@ export default function LiveSignalPanel() {
         </div>
       )}
 
-      {/* Signal */}
+      {/* Signal block */}
       {signal && (
         <>
+          {/* Badge + confidence */}
           <div style={{ textAlign: 'center', marginBottom: 14 }}>
-            <Badge signal={signal.signal} />
-            <div style={{ marginTop: 8, fontSize: 11, color: '#94a3b8' }}>
-              Confidence &nbsp;
-              <span style={{ color: '#f1f5f9', fontWeight: 700, fontSize: 14 }}>{signal.confidence}%</span>
-              {signal.source === 'client' && (
-                <span style={{ marginLeft: 6, fontSize: 9, color: '#f59e0b' }}>(offline mode)</span>
-              )}
+            <div style={{
+              display: 'inline-block',
+              padding: isHighConf ? 4 : 0,
+              borderRadius: 10,
+              background: isHighConf
+                ? signal.signal === 'BUY' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)'
+                : 'transparent',
+              border: isHighConf
+                ? signal.signal === 'BUY' ? '1px solid #10b981' : '1px solid #ef4444'
+                : '1px solid transparent',
+            }}>
+              <Badge signal={signal.signal} />
             </div>
+
+            <div style={{ marginTop: 10, padding: '0 8px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                <span style={{ fontSize: 10, color: '#64748b' }}>Confidence</span>
+                <span style={{
+                  fontSize: 13, fontWeight: 700,
+                  color: signal.confidence >= 75 ? '#10b981' : signal.confidence >= 60 ? '#f59e0b' : '#ef4444',
+                }}>
+                  {signal.confidence}%
+                  {isHighConf && <span style={{ fontSize: 9, marginLeft: 4, color: '#10b981' }}>✓ HIGH</span>}
+                </span>
+              </div>
+              <div style={{ height: 5, background: '#1e293b', borderRadius: 3, overflow: 'hidden' }}>
+                <div style={{
+                  height: '100%', borderRadius: 3,
+                  width: `${signal.confidence}%`,
+                  background: signal.confidence >= 75 ? '#10b981' : signal.confidence >= 60 ? '#f59e0b' : '#ef4444',
+                  transition: 'width 0.4s ease',
+                }} />
+              </div>
+            </div>
+
+            {signal.source === 'ml' && (
+              <div style={{ marginTop: 6, fontSize: 9, color: '#3b82f6' }}>🤖 ML Ensemble Active</div>
+            )}
+            {signal.source === 'client' && (
+              <div style={{ marginTop: 6, fontSize: 9, color: '#f59e0b' }}>⚠ Offline — EMA/RSI fallback</div>
+            )}
           </div>
 
-          {/* Indicators */}
-          <div style={{ marginBottom: 12 }}>
-            <div style={{ fontSize: 9, color: '#475569', letterSpacing: 1, marginBottom: 4, textTransform: 'uppercase' }}>Indicators</div>
-            <Row label="EMA 20"     value={`$${fmt(signal.ema20, 2)}`} />
-            <Row label="EMA 50"     value={`$${fmt(signal.ema50, 2)}`} />
-            <Row label="RSI (14)"   value={fmt(signal.rsi, 1)}
-              color={signal.rsi > 70 ? '#ef4444' : signal.rsi < 30 ? '#10b981' : '#e2e8f0'} />
-            <Row label="ATR (14)"   value={fmt(signal.atr, 2)} />
-            <Row label="Swing High" value={`$${fmt(signal.swingHigh, 2)}`} color="#ef4444" />
-            <Row label="Swing Low"  value={`$${fmt(signal.swingLow, 2)}`}  color="#10b981" />
-          </div>
+          {/* ML model agreement */}
+          {signal.source === 'ml' && (
+            <div style={{ background: '#0f172a', borderRadius: 6, padding: 10, marginBottom: 12 }}>
+              <div style={{ fontSize: 9, color: '#475569', letterSpacing: 1, marginBottom: 6, textTransform: 'uppercase' }}>Model Agreement</div>
+              <Row label="XGBoost"       value={signal.xgbPred} color={signal.xgbPred === 'BUY' ? '#10b981' : signal.xgbPred === 'SELL' ? '#ef4444' : '#f59e0b'} />
+              <Row label="Random Forest" value={signal.rfPred}  color={signal.rfPred  === 'BUY' ? '#10b981' : signal.rfPred  === 'SELL' ? '#ef4444' : '#f59e0b'} />
+              <Row label="SMC Filter"    value={signal.smcPred} color={signal.smcPred === 'BUY' ? '#10b981' : signal.smcPred === 'SELL' ? '#ef4444' : '#f59e0b'} />
+            </div>
+          )}
+
+          {/* Indicators (fallback only) */}
+          {signal.source !== 'ml' && (
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontSize: 9, color: '#475569', letterSpacing: 1, marginBottom: 4, textTransform: 'uppercase' }}>Indicators</div>
+              <Row label="EMA 20"     value={fmt(signal.ema20, 2)} />
+              <Row label="EMA 50"     value={fmt(signal.ema50, 2)} />
+              <Row label="RSI (14)"   value={fmt(signal.rsi, 1)}
+                color={signal.rsi > 70 ? '#ef4444' : signal.rsi < 30 ? '#10b981' : '#e2e8f0'} />
+              <Row label="ATR (14)"   value={fmt(signal.atr, 2)} />
+              <Row label="Swing High" value={fmt(signal.swingHigh, 2)} color="#ef4444" />
+              <Row label="Swing Low"  value={fmt(signal.swingLow, 2)}  color="#10b981" />
+            </div>
+          )}
 
           {/* Trade levels */}
           {signal.signal !== 'HOLD' && signal.stopLoss && (
             <div style={{ background: '#0f172a', borderRadius: 6, padding: 10, marginBottom: 12 }}>
               <div style={{ fontSize: 9, color: '#475569', letterSpacing: 1, marginBottom: 6, textTransform: 'uppercase' }}>Trade Levels</div>
-              <Row label="Entry"       value={`$${fmt(signal.currentPrice, 2)}`} color="#3b82f6" />
-              <Row label="Stop Loss"   value={`$${fmt(signal.stopLoss, 2)}`}     color="#ef4444" />
-              <Row label="Take Profit" value={`$${fmt(signal.takeProfit, 2)}`}   color="#10b981" />
-              <Row label="Risk:Reward" value="1 : 2"                             color="#f59e0b" />
+              <Row label="Entry"       value={fmt(signal.entry ?? signal.currentPrice, 2)} color="#3b82f6" />
+              <Row label="Stop Loss"   value={fmt(signal.stopLoss, 2)}   color="#ef4444" />
+              <Row label="Take Profit" value={fmt(signal.takeProfit, 2)} color="#10b981" />
+              <Row label="Risk:Reward" value={`1 : ${signal.riskReward ?? 2}`} color="#f59e0b" />
             </div>
           )}
 
-          {/* Reasoning */}
+          {/* Analysis */}
           <div style={{ background: '#0f172a', borderRadius: 6, padding: 10 }}>
             <div style={{ fontSize: 9, color: '#475569', letterSpacing: 1, marginBottom: 6, textTransform: 'uppercase' }}>Analysis</div>
-            {signal.reasoning.map((r, i) => (
+            {(signal.reasoning || []).map((r, i) => (
               <div key={i} style={{ fontSize: 10, color: '#94a3b8', padding: '2px 0' }}>• {r}</div>
             ))}
           </div>
