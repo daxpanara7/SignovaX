@@ -1,18 +1,44 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useChartStore } from '../stores/chartStore';
 import { usePriceStore } from '../stores/priceStore';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
-const SYMBOLS = [
-  { symbol: 'BTCUSDT',  name: 'BTC/USDT' },
-  { symbol: 'ETHUSDT',  name: 'ETH/USDT' },
-  { symbol: 'SOLUSDT',  name: 'SOL/USDT' },
-  { symbol: 'BNBUSDT',  name: 'BNB/USDT' },
-  { symbol: 'XRPUSDT',  name: 'XRP/USDT' },
+const CRYPTO_SYMBOLS = [
+  { symbol: 'BTCUSDT', name: 'BTC/USDT', type: 'crypto' },
+  { symbol: 'ETHUSDT', name: 'ETH/USDT', type: 'crypto' },
+  { symbol: 'SOLUSDT', name: 'SOL/USDT', type: 'crypto' },
+  { symbol: 'BNBUSDT', name: 'BNB/USDT', type: 'crypto' },
+  { symbol: 'XRPUSDT', name: 'XRP/USDT', type: 'crypto' },
 ];
 
+const INDEX_SYMBOLS = [
+  { symbol: 'NIFTY50',  name: 'NIFTY 50',  yahooTicker: '%5ENSEI',  type: 'index' },
+  { symbol: 'SENSEX',   name: 'SENSEX',     yahooTicker: '%5EBSESN', type: 'index' },
+  { symbol: 'SGXNIFTY', name: 'SGX Nifty',  yahooTicker: 'NI%3DFUT', type: 'index' },
+];
+
+const ALL_SYMBOLS = [...CRYPTO_SYMBOLS, ...INDEX_SYMBOLS];
+
+// Fetch Indian index price from Yahoo Finance via allorigins proxy (no CORS issues)
+async function fetchIndexPrice(yahooTicker) {
+  try {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${yahooTicker}?interval=1d&range=2d`;
+    const proxy = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+    const res = await fetch(proxy, { signal: AbortSignal.timeout(8000) });
+    const json = await res.json();
+    const data = JSON.parse(json.contents);
+    const meta = data?.chart?.result?.[0]?.meta;
+    if (!meta) return null;
+    const price = meta.regularMarketPrice;
+    const prev  = meta.chartPreviousClose || meta.previousClose;
+    const change = prev ? ((price - prev) / prev) * 100 : 0;
+    return { price, change };
+  } catch {
+    return null;
+  }
+}
+
 const Sparkline = ({ change }) => {
-  // Simple visual bar based on % change
   const positive = change >= 0;
   return (
     <div style={{ display: 'flex', alignItems: 'flex-end', gap: 1, height: 20 }}>
@@ -33,6 +59,33 @@ const Watchlist = () => {
   const { symbol: selectedSymbol, setSymbol } = useChartStore();
   const { prices, isConnected } = usePriceStore();
 
+  // Index prices fetched separately (not from Binance WebSocket)
+  const [indexPrices, setIndexPrices] = useState({});
+
+  useEffect(() => {
+    const fetchAll = async () => {
+      const results = await Promise.all(
+        INDEX_SYMBOLS.map(async (s) => {
+          const data = await fetchIndexPrice(s.yahooTicker);
+          return [s.symbol, data];
+        })
+      );
+      const map = {};
+      results.forEach(([sym, data]) => { if (data) map[sym] = data; });
+      setIndexPrices(map);
+    };
+
+    fetchAll();
+    // Refresh every 60s (indices don't need real-time)
+    const timer = setInterval(fetchAll, 60000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const getPrice = (symbol, type) => {
+    if (type === 'crypto') return prices[symbol] ?? null;
+    return indexPrices[symbol] ?? null;
+  };
+
   if (collapsed) {
     return (
       <div style={{
@@ -44,7 +97,7 @@ const Watchlist = () => {
           style={{ color: 'var(--text-secondary)', background: 'none', border: 'none', cursor: 'pointer', padding: 4 }}>
           <ChevronRight className="w-4 h-4" />
         </button>
-        {SYMBOLS.map(s => (
+        {ALL_SYMBOLS.map(s => (
           <div key={s.symbol} style={{
             fontSize: 9, color: 'var(--text-secondary)',
             writingMode: 'vertical-rl', textOrientation: 'mixed',
@@ -78,12 +131,12 @@ const Watchlist = () => {
 
       {/* Symbol rows */}
       <div style={{ flex: 1, overflowY: 'auto' }}>
-        {SYMBOLS.map(({ symbol, name }) => {
-          const live = prices[symbol];
-          const price = live?.price ?? null;
-          const change = live?.change ?? null;
+        {ALL_SYMBOLS.map(({ symbol, name, type }) => {
+          const live    = getPrice(symbol, type);
+          const price   = live?.price ?? null;
+          const change  = live?.change ?? null;
           const isSelected = selectedSymbol === symbol;
-          const positive = change == null ? true : change >= 0;
+          const positive   = change == null ? true : change >= 0;
 
           return (
             <button key={symbol} onClick={() => setSymbol(symbol)}
@@ -94,7 +147,7 @@ const Watchlist = () => {
                 backgroundColor: isSelected ? 'var(--bg-tertiary)' : 'transparent',
                 textAlign: 'left', cursor: 'pointer', display: 'block',
               }}>
-              {/* Symbol name + change */}
+              {/* Name + change */}
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                 <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-primary)' }}>
                   {name}
@@ -107,19 +160,28 @@ const Watchlist = () => {
               {/* Price */}
               <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', marginBottom: 6, fontFamily: 'monospace' }}>
                 {price == null
-                  ? <span style={{ color: 'var(--text-secondary)', fontSize: 11 }}>Loading...</span>
-                  : `$${price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: price > 100 ? 2 : 4 })}`
+                  ? <span style={{ color: 'var(--text-secondary)', fontSize: 11 }}>
+                      {type === 'index' ? 'Fetching...' : 'Loading...'}
+                    </span>
+                  : type === 'index'
+                    ? `₹${price.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`
+                    : `${price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: price > 100 ? 2 : 4 })}`
                 }
               </div>
 
               {/* Sparkline */}
               <Sparkline change={change ?? 0} />
+
+              {/* Index badge */}
+              {type === 'index' && (
+                <div style={{ fontSize: 8, color: '#f59e0b', marginTop: 2 }}>🇮🇳 NSE/BSE</div>
+              )}
             </button>
           );
         })}
       </div>
 
-      {/* Footer status */}
+      {/* Footer */}
       <div style={{ padding: '8px 12px', borderTop: '1px solid var(--border)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <div style={{

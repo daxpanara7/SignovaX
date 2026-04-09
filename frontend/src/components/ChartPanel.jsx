@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createChart, CandlestickSeries, LineSeries } from 'lightweight-charts';
 import { useChartStore } from '../stores/chartStore';
 import { useSignalStore } from '../stores';
@@ -16,9 +16,11 @@ const ChartPanel = () => {
   const overlaySeriesRef  = useRef([]);
   const candleBufferRef   = useRef([]);
   const klineWsRef        = useRef(null);
-  const chartReadyRef     = useRef(false);
+  const loadIdRef         = useRef(0); // cancel stale loads
+  const cleanupRef        = useRef(null);
 
-  const { symbol, timeframe,
+  const {
+    symbol, timeframe,
     showOrderBlocks, showFVGs, showLiquidityZones,
     showBosChoch, showSessionBoxes, showHTFLevels,
     toggleOrderBlocks, toggleFVGs, toggleLiquidityZones,
@@ -36,86 +38,119 @@ const ChartPanel = () => {
 
   const binanceInterval = TF_MAP[timeframe] || '15m';
 
-  // ── 1. Init chart FIRST (synchronous, no async) ──────────────────────────
+  // ── 1. Init chart ONCE ───────────────────────────────────────────────────
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
-    const chart = createChart(chartContainerRef.current, {
-      width:  chartContainerRef.current.clientWidth,
-      height: chartContainerRef.current.clientHeight,
-      layout: { background: { color: '#0a0e17' }, textColor: '#94a3b8' },
-      grid:   { vertLines: { color: '#1a2235' }, horzLines: { color: '#1a2235' } },
-      crosshair: {
-        mode: 1,
-        vertLine: { color: '#3b82f6', width: 1, style: 0 },
-        horzLine: { color: '#3b82f6', width: 1, style: 0 },
-      },
-      rightPriceScale: { borderColor: '#1e293b' },
-      timeScale: { borderColor: '#1e293b', timeVisible: true, secondsVisible: false },
-    });
+    // Use a small delay to ensure the container has been laid out and has real dimensions
+    const init = () => {
+      const container = chartContainerRef.current;
+      if (!container) return;
 
-    const series = chart.addSeries(CandlestickSeries, {
-      upColor: '#10b981', downColor: '#ef4444',
-      wickUpColor: '#10b981', wickDownColor: '#ef4444',
-    });
+      const w = container.clientWidth  || 800;
+      const h = container.clientHeight || 500;
 
-    chartRef.current        = chart;
-    candleSeriesRef.current = series;
-    chartReadyRef.current   = true;
+      const chart = createChart(container, {
+        width: w,
+        height: h,
+        layout: { background: { color: '#0a0e17' }, textColor: '#94a3b8' },
+        grid:   { vertLines: { color: '#1a2235' }, horzLines: { color: '#1a2235' } },
+        crosshair: {
+          mode: 1,
+          vertLine: { color: '#3b82f6', width: 1, style: 0 },
+          horzLine: { color: '#3b82f6', width: 1, style: 0 },
+        },
+        rightPriceScale: { borderColor: '#1e293b' },
+        timeScale: { borderColor: '#1e293b', timeVisible: true, secondsVisible: false },
+      });
 
-    const onResize = () => {
-      if (chartContainerRef.current && chartRef.current) {
+      const series = chart.addSeries(CandlestickSeries, {
+        upColor: '#10b981', downColor: '#ef4444',
+        wickUpColor: '#10b981', wickDownColor: '#ef4444',
+      });
+
+      chartRef.current        = chart;
+      candleSeriesRef.current = series;
+
+      // ResizeObserver keeps chart sized correctly at all times
+      const ro = new ResizeObserver(() => {
+        if (!container || !chartRef.current) return;
         chartRef.current.applyOptions({
-          width:  chartContainerRef.current.clientWidth,
-          height: chartContainerRef.current.clientHeight,
+          width:  container.clientWidth,
+          height: container.clientHeight,
         });
-      }
+      });
+      ro.observe(container);
+
+      return () => {
+        ro.disconnect();
+        chartRef.current?.remove();
+        chartRef.current        = null;
+        candleSeriesRef.current = null;
+      };
     };
-    window.addEventListener('resize', onResize);
+
+    // Give the browser one frame to lay out flex containers
+    const raf = requestAnimationFrame(() => {
+      const cleanup = init();
+      // store cleanup for the effect return
+      cleanupRef.current = cleanup;
+    });
 
     return () => {
-      chartReadyRef.current = false;
-      window.removeEventListener('resize', onResize);
-      chartRef.current?.remove();
-      chartRef.current        = null;
-      candleSeriesRef.current = null;
+      cancelAnimationFrame(raf);
+      cleanupRef.current?.();
     };
-  }, []); // once only
+  }, []);
 
-  // ── 2. Load historical candles (REST) ────────────────────────────────────
-  const loadHistory = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const candles = await fetchCandles(symbol, binanceInterval, 500);
-      candles.sort((a, b) => a.time - b.time);
-      candleBufferRef.current = candles;
-      // Wait until chart is ready
-      if (candleSeriesRef.current) {
-        candleSeriesRef.current.setData(candles);
-        chartRef.current?.timeScale().fitContent();
+  // ── 2. Load candles — fully sequential, cancels stale requests ──────────
+  useEffect(() => {
+    const myId = ++loadIdRef.current;
+
+    // Wait for chart to be initialized (requestAnimationFrame may not have run yet)
+    const tryLoad = () => {
+      if (!candleSeriesRef.current) {
+        // Chart not ready yet, retry in next frame
+        requestAnimationFrame(tryLoad);
+        return;
       }
-    } catch {
-      const mock = generateMockCandles(300, prices[symbol]?.price || 67000);
-      candleBufferRef.current = mock;
-      if (candleSeriesRef.current) {
-        candleSeriesRef.current.setData(mock);
-        chartRef.current?.timeScale().fitContent();
-      }
-    } finally {
-      setLoading(false);
-    }
+
+      // Clear chart immediately
+      try { candleSeriesRef.current.setData([]); } catch (_) {}
+      candleBufferRef.current = [];
+      setLoading(true);
+      setError(null);
+
+      fetchCandles(symbol, binanceInterval, 500)
+        .then(candles => {
+          if (myId !== loadIdRef.current) return;
+          candles.sort((a, b) => a.time - b.time);
+          candleBufferRef.current = candles;
+          if (candleSeriesRef.current) {
+            candleSeriesRef.current.setData(candles);
+            chartRef.current?.timeScale().fitContent();
+          }
+        })
+        .catch(() => {
+          if (myId !== loadIdRef.current) return;
+          const mock = generateMockCandles(300, prices[symbol]?.price || 67000);
+          candleBufferRef.current = mock;
+          if (candleSeriesRef.current) {
+            candleSeriesRef.current.setData(mock);
+            chartRef.current?.timeScale().fitContent();
+          }
+        })
+        .finally(() => {
+          if (myId !== loadIdRef.current) return;
+          setLoading(false);
+        });
+    };
+
+    requestAnimationFrame(tryLoad);
   }, [symbol, binanceInterval]); // eslint-disable-line
 
+  // ── 3. Kline WebSocket ───────────────────────────────────────────────────
   useEffect(() => {
-    // Small delay to ensure chart is initialized before loading data
-    const t = setTimeout(loadHistory, 100);
-    return () => clearTimeout(t);
-  }, [loadHistory]);
-
-  // ── 3. Kline WebSocket — dedicated connection for chart candles ──────────
-  useEffect(() => {
-    // Close previous kline WS
     if (klineWsRef.current) {
       klineWsRef.current.onclose = null;
       klineWsRef.current.close();
@@ -123,29 +158,32 @@ const ChartPanel = () => {
     }
     setWsLive(false);
 
-    const streamName = `${symbol.toLowerCase()}@kline_${binanceInterval}`;
-    const url = `wss://stream.binance.com:9443/ws/${streamName}`;
+    // Only connect for Binance symbols (not indices)
+    const isBinance = symbol.endsWith('USDT') || symbol.endsWith('BTC');
+    if (!isBinance) return;
 
-    let reconnectTimer = null;
+    const url = `wss://stream.binance.com:9443/ws/${symbol.toLowerCase()}@kline_${binanceInterval}`;
     let alive = true;
+    let reconnectTimer = null;
 
     const connect = () => {
       if (!alive) return;
       const ws = new WebSocket(url);
       klineWsRef.current = ws;
 
-      ws.onopen = () => {
+      ws.onopen  = () => { if (alive) setWsLive(true); };
+      ws.onerror = () => {};
+      ws.onclose = () => {
         if (!alive) return;
-        setWsLive(true);
+        setWsLive(false);
+        reconnectTimer = setTimeout(connect, 3000);
       };
 
       ws.onmessage = (evt) => {
         if (!alive || !candleSeriesRef.current) return;
         try {
-          const msg = JSON.parse(evt.data);
-          const k   = msg.k;
+          const k = JSON.parse(evt.data).k;
           if (!k) return;
-
           const candle = {
             time:  Math.floor(k.t / 1000),
             open:  parseFloat(k.o),
@@ -153,18 +191,11 @@ const ChartPanel = () => {
             low:   parseFloat(k.l),
             close: parseFloat(k.c),
           };
-
           const buf  = candleBufferRef.current;
-          if (buf.length === 0) return;
+          if (!buf.length) return;
           const last = buf[buf.length - 1];
-
           if (candle.time === last.time) {
-            const updated = {
-              ...candle,
-              open: last.open,
-              high: Math.max(last.high, candle.high),
-              low:  Math.min(last.low,  candle.low),
-            };
+            const updated = { ...candle, open: last.open, high: Math.max(last.high, candle.high), low: Math.min(last.low, candle.low) };
             buf[buf.length - 1] = updated;
             candleSeriesRef.current.update(updated);
           } else if (candle.time > last.time) {
@@ -174,18 +205,9 @@ const ChartPanel = () => {
           }
         } catch { /* ignore */ }
       };
-
-      ws.onerror = () => {};
-
-      ws.onclose = () => {
-        if (!alive) return;
-        setWsLive(false);
-        reconnectTimer = setTimeout(connect, 3000);
-      };
     };
 
     connect();
-
     return () => {
       alive = false;
       clearTimeout(reconnectTimer);
@@ -200,23 +222,15 @@ const ChartPanel = () => {
   // ── 4. SMC overlays ──────────────────────────────────────────────────────
   useEffect(() => {
     if (!chartRef.current) return;
-    overlaySeriesRef.current.forEach(s => {
-      try { chartRef.current.removeSeries(s); } catch (_) {}
-    });
+    overlaySeriesRef.current.forEach(s => { try { chartRef.current.removeSeries(s); } catch (_) {} });
     overlaySeriesRef.current = [];
 
     if (showOrderBlocks) {
       mockOrderBlocks.forEach(ob => {
         const color = ob.type === 'bullish' ? '#10b981' : '#ef4444';
         ['price_high', 'price_low'].forEach(key => {
-          const s = chartRef.current.addSeries(LineSeries, {
-            color: 'transparent', lineWidth: 0,
-            priceLineVisible: false, lastValueVisible: false,
-          });
-          s.setData([
-            { time: Math.floor(ob.time_start), value: ob[key] },
-            { time: Math.floor(ob.time_end),   value: ob[key] },
-          ]);
+          const s = chartRef.current.addSeries(LineSeries, { color: 'transparent', lineWidth: 0, priceLineVisible: false, lastValueVisible: false });
+          s.setData([{ time: Math.floor(ob.time_start), value: ob[key] }, { time: Math.floor(ob.time_end), value: ob[key] }]);
           s.createPriceLine({ price: ob[key], color, lineWidth: 1, lineStyle: 2, axisLabelVisible: true });
           overlaySeriesRef.current.push(s);
         });
@@ -225,30 +239,22 @@ const ChartPanel = () => {
 
     if (showLiquidityZones) {
       mockLiquidityZones.filter(z => !z.swept).forEach(liq => {
-        const s = chartRef.current.addSeries(LineSeries, {
-          color: '#8b5cf6', lineWidth: 1, lineStyle: 2, priceLineVisible: false,
-        });
+        const s = chartRef.current.addSeries(LineSeries, { color: '#8b5cf6', lineWidth: 1, lineStyle: 2, priceLineVisible: false });
         const now = Math.floor(Date.now() / 1000);
-        s.setData([
-          { time: Math.floor(liq.time), value: liq.price },
-          { time: now,                  value: liq.price },
-        ]);
+        s.setData([{ time: Math.floor(liq.time), value: liq.price }, { time: now, value: liq.price }]);
         overlaySeriesRef.current.push(s);
       });
     }
 
     if (signalData && signalData.signal !== 'HOLD') {
-      const now  = Math.floor(Date.now() / 1000);
+      const now = Math.floor(Date.now() / 1000);
       const past = now - 3600;
       [
         { price: signalData.currentPrice, color: signalData.signal === 'BUY' ? '#10b981' : '#ef4444', title: `${signalData.signal} Entry` },
         { price: signalData.stopLoss,     color: '#ef4444', title: 'Stop Loss'   },
         { price: signalData.takeProfit,   color: '#10b981', title: 'Take Profit' },
       ].filter(l => l.price).forEach(level => {
-        const s = chartRef.current.addSeries(LineSeries, {
-          color: 'transparent', lineWidth: 0,
-          priceLineVisible: false, lastValueVisible: false,
-        });
+        const s = chartRef.current.addSeries(LineSeries, { color: 'transparent', lineWidth: 0, priceLineVisible: false, lastValueVisible: false });
         s.setData([{ time: past, value: level.price }, { time: now, value: level.price }]);
         s.createPriceLine({ price: level.price, color: level.color, lineWidth: 2, lineStyle: 0, axisLabelVisible: true, title: level.title });
         overlaySeriesRef.current.push(s);
@@ -302,11 +308,11 @@ const ChartPanel = () => {
           {[
             ['Confidence', `${signalData.confidence}%`],
             ['RSI', signalData.rsi],
-            ['EMA20', `$${Number(signalData.ema20).toLocaleString()}`],
-            ['EMA50', `$${Number(signalData.ema50).toLocaleString()}`],
+            ['EMA20', `${Number(signalData.ema20).toLocaleString()}`],
+            ['EMA50', `${Number(signalData.ema50).toLocaleString()}`],
             ...(signalData.signal !== 'HOLD' ? [
-              ['SL', `$${Number(signalData.stopLoss).toLocaleString()}`],
-              ['TP', `$${Number(signalData.takeProfit).toLocaleString()}`],
+              ['SL', `${Number(signalData.stopLoss).toLocaleString()}`],
+              ['TP', `${Number(signalData.takeProfit).toLocaleString()}`],
               ['R:R', '1:2'],
             ] : []),
           ].map(([label, val]) => (
@@ -334,7 +340,7 @@ const ChartPanel = () => {
           </div>
         )}
 
-        {/* Live price — top left */}
+        {/* Live price */}
         {!loading && livePrice && (
           <div className="absolute top-3 left-3 z-10 px-3 py-1 rounded text-xs font-bold"
             style={{
@@ -347,7 +353,7 @@ const ChartPanel = () => {
           </div>
         )}
 
-        {/* WS status — top right */}
+        {/* WS status */}
         {!loading && (
           <div className="absolute top-3 right-3 z-10 flex items-center gap-1.5 px-2 py-1 rounded text-xs"
             style={{ backgroundColor: '#0f172a', border: `1px solid ${wsLive ? '#10b981' : '#3b82f6'}` }}>
