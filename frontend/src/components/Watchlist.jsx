@@ -12,28 +12,34 @@ const CRYPTO_SYMBOLS = [
 ];
 
 const INDEX_SYMBOLS = [
-  { symbol: 'NIFTY50',  name: 'NIFTY 50',  yahooTicker: '%5ENSEI',  type: 'index' },
-  { symbol: 'SENSEX',   name: 'SENSEX',     yahooTicker: '%5EBSESN', type: 'index' },
-  { symbol: 'SGXNIFTY', name: 'SGX Nifty',  yahooTicker: 'NI%3DFUT', type: 'index' },
+  { symbol: 'NIFTY50',  name: 'NIFTY 50',  type: 'index' },
+  { symbol: 'SENSEX',   name: 'SENSEX',    type: 'index' },
 ];
 
 const ALL_SYMBOLS = [...CRYPTO_SYMBOLS, ...INDEX_SYMBOLS];
 
-// Fetch Indian index price from Yahoo Finance via allorigins proxy (no CORS issues)
-async function fetchIndexPrice(yahooTicker) {
+const ML_API = process.env.REACT_APP_ML_API_URL || 'http://localhost:8000';
+
+// Fetch Indian index price from our ML API (fast and reliable)
+async function fetchIndexPrice(symbol) {
   try {
-    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${yahooTicker}?interval=1d&range=2d`;
-    const proxy = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
-    const res = await fetch(proxy, { signal: AbortSignal.timeout(8000) });
-    const json = await res.json();
-    const data = JSON.parse(json.contents);
-    const meta = data?.chart?.result?.[0]?.meta;
-    if (!meta) return null;
-    const price = meta.regularMarketPrice;
-    const prev  = meta.chartPreviousClose || meta.previousClose;
-    const change = prev ? ((price - prev) / prev) * 100 : 0;
+    const res = await fetch(
+      `${ML_API}/index-candles?symbol=${symbol}&interval=1d&limit=2`,
+      { signal: AbortSignal.timeout(5000) }
+    );
+    const data = await res.json();
+    if (!data.candles || data.candles.length < 2) return null;
+
+    const latest = data.candles[data.candles.length - 1];
+    const previous = data.candles[data.candles.length - 2];
+
+    const price = latest.close;
+    const prevClose = previous.close;
+    const change = ((price - prevClose) / prevClose) * 100;
+
     return { price, change };
-  } catch {
+  } catch (err) {
+    console.error(`Failed to fetch ${symbol} price:`, err);
     return null;
   }
 }
@@ -66,7 +72,7 @@ const Watchlist = () => {
     const fetchAll = async () => {
       const results = await Promise.all(
         INDEX_SYMBOLS.map(async (s) => {
-          const data = await fetchIndexPrice(s.yahooTicker);
+          const data = await fetchIndexPrice(s.symbol);
           return [s.symbol, data];
         })
       );
@@ -76,8 +82,8 @@ const Watchlist = () => {
     };
 
     fetchAll();
-    // Refresh every 60s (indices don't need real-time)
-    const timer = setInterval(fetchAll, 60000);
+    // Refresh every 30s for faster updates
+    const timer = setInterval(fetchAll, 30000);
     return () => clearInterval(timer);
   }, []);
 

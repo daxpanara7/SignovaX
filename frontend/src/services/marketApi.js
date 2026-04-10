@@ -66,11 +66,34 @@ export async function fetchTicker24(symbol = 'BTCUSDT') {
 }
 
 /**
- * OHLCV candles — direct from Binance
- * interval: 1m | 5m | 15m | 1h | 4h | 1d
+ * OHLCV candles — uses Binance for crypto, ML API for indices
+ * interval: 1m | 2m | 5m | 10m | 15m | 30m | 1h | 4h | 1d | 1w | 1mo
  * Returns: Array of { time (seconds), open, high, low, close, volume }
  */
 export async function fetchCandles(symbol = 'BTCUSDT', interval = '15m', limit = 300) {
+  // Check if this is an Indian index
+  const indexSymbols = ['NIFTY50', 'SENSEX'];
+  if (indexSymbols.includes(symbol.toUpperCase())) {
+    // Use ML API for index data
+    try {
+      const data = await get(
+        `${ML_API}/index-candles?symbol=${symbol}&interval=${interval}&limit=${limit}`
+      );
+      return data.candles.map(c => ({
+        time:   c.time,
+        open:   c.open,
+        high:   c.high,
+        low:    c.low,
+        close:  c.close,
+        volume: c.volume,
+      }));
+    } catch (e) {
+      console.error(`Failed to fetch ${symbol} candles from ML API:`, e);
+      throw e;
+    }
+  }
+
+  // Use Binance for crypto
   const raw = await get(
     `${BINANCE}/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`
   );
@@ -173,7 +196,10 @@ export async function fetchLiveSignal(symbol = 'BTCUSDT', interval = '15m') {
       timestamp: new Date().toISOString(),
       source: 'ml',
     };
-  } catch { /* fall through */ }
+  } catch (err) {
+    console.warn('ML API predict failed, falling back to client-side:', err.message);
+    /* fall through */
+  }
 
   // 2. Try proxy
   if (PROXY) {

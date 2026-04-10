@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { createChart, ColorType, CrosshairMode } from 'lightweight-charts'
 import { useChartStore } from '../stores/chartStore'
 import { useSignalStore } from '../stores/signalStore'
-import { marketDataAPI } from '../services/api'
+import { fetchCandles } from '../services/marketApi'
 
 const TradingChart = () => {
   const chartContainerRef = useRef()
@@ -33,44 +33,36 @@ const TradingChart = () => {
     try {
       setIsLoading(true)
       setError(null)
-      
+
       console.log(`Fetching OHLCV data for ${symbol} ${timeframe}...`)
-      
-      const response = await marketDataAPI.getOHLCV(symbol, timeframe, 100)
-      const data = response.data
-      
-      console.log('Received data:', data)
-      
-      if (data && data.data && Array.isArray(data.data)) {
-        // Convert data to TradingView format
-        const chartData = data.data.map(candle => ({
-          time: Math.floor(new Date(candle.timestamp).getTime() / 1000),
-          open: parseFloat(candle.open),
-          high: parseFloat(candle.high),
-          low: parseFloat(candle.low),
-          close: parseFloat(candle.close),
-          volume: parseFloat(candle.volume || 0)
-        }))
-        
+
+      // Use fetchCandles which handles both crypto (Binance) and indices (ML API)
+      const chartData = await fetchCandles(symbol, timeframe, 500)
+
+      console.log('Received chart data:', chartData.length, 'candles')
+
+      if (chartData && Array.isArray(chartData) && chartData.length > 0) {
+        // Data is already in the correct format: { time, open, high, low, close, volume }
         // Sort by time to ensure proper order
         chartData.sort((a, b) => a.time - b.time)
-        
-        console.log('Converted chart data:', chartData.slice(0, 3)) // Log first 3 items
-        
+
+        console.log('First candle:', chartData[0])
+        console.log('Last candle:', chartData[chartData.length - 1])
+
         // Update chart
-        if (candlestickSeriesRef.current && chartData.length > 0) {
+        if (candlestickSeriesRef.current) {
           candlestickSeriesRef.current.setData(chartData)
           setChartData(chartData)
           console.log('✅ Chart data updated successfully')
         }
       } else {
-        throw new Error('Invalid data format received from API')
+        throw new Error('No data received from API')
       }
-      
+
     } catch (error) {
       console.error('Error fetching chart data:', error)
       setError(`Failed to load chart data: ${error.message}`)
-      
+
       // Generate fallback data
       const fallbackData = generateFallbackData()
       if (candlestickSeriesRef.current) {

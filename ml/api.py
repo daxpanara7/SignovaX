@@ -16,8 +16,13 @@ from features import build_features, FEATURE_COLS
 from model import SignovaEnsemble
 
 import os
+import threading
+
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "models", "ensemble.joblib")
 model: SignovaEnsemble = None
+
+# Global lock for yfinance to prevent database lock errors
+_yfinance_lock = threading.Lock()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -83,24 +88,62 @@ def index_candles(symbol: str = "NIFTY50", interval: str = "15m", limit: int = 3
     except ImportError:
         raise HTTPException(status_code=503, detail="yfinance not installed")
 
-    ticker_map = {"NIFTY50": "^NSEI", "SENSEX": "^BSESN"}
+    ticker_map = {
+        "NIFTY50": "^NSEI",
+        "SENSEX": "^BSESN"
+    }
     ticker = ticker_map.get(symbol.upper())
     if not ticker:
         raise HTTPException(status_code=400, detail=f"Unknown symbol: {symbol}")
 
+    # Complete interval mapping for all requested timeframes
     period_map = {
-        "1m": "7d", "5m": "60d", "15m": "60d", "30m": "60d",
-        "1h": "730d", "4h": "730d", "1d": "5y",
+        "1m": "7d",    # 1 minute - 7 days max
+        "2m": "7d",    # 2 minutes - 7 days
+        "5m": "60d",   # 5 minutes - 60 days
+        "10m": "60d",  # 10 minutes - 60 days (not supported by yfinance, fallback to 15m)
+        "15m": "60d",  # 15 minutes - 60 days
+        "30m": "60d",  # 30 minutes - 60 days
+        "1h": "730d",  # 1 hour - 2 years
+        "4h": "730d",  # 4 hours - 2 years (simulated from 1h)
+        "1d": "max",   # 1 day - max available
+        "1w": "max",   # 1 week - max available
+        "1mo": "max",  # 1 month - max available
     }
-    yf_interval = "1h" if interval == "4h" else interval
+
+    # yfinance doesn't support 10m and 4h, we'll handle those specially
+    interval_map = {
+        "10m": "15m",  # Use 15m and filter
+        "4h": "1h",    # Use 1h and aggregate
+    }
+
+    yf_interval = interval_map.get(interval, interval)
     period = period_map.get(interval, "60d")
 
     try:
-        t  = yf.Ticker(ticker)
-        df = t.history(period=period, interval=yf_interval)
+        # Use global lock to prevent database conflicts across all requests
+        with _yfinance_lock:
+            # Download with reduced caching to avoid database locks
+            t = yf.Ticker(ticker)
+            # Disable yfinance cache to prevent SQLite lock errors
+            df = t.history(period=period, interval=yf_interval, auto_adjust=True, actions=False)
+
         if df is None or df.empty:
-            raise HTTPException(status_code=404, detail="No data")
+            raise HTTPException(status_code=404, detail="No data available for this symbol/interval")
+
+        # Handle 4h aggregation from 1h data
+        if interval == "4h":
+            df = df.resample('240T').agg({  # 240 minutes = 4 hours
+                'Open': 'first',
+                'High': 'max',
+                'Low': 'min',
+                'Close': 'last',
+                'Volume': 'sum'
+            }).dropna()
+
+        # Take only the requested number of candles
         df = df.tail(limit)
+
         candles = []
         for ts, row in df.iterrows():
             try:
@@ -114,11 +157,15 @@ def index_candles(symbol: str = "NIFTY50", interval: str = "15m", limit: int = 3
                 })
             except Exception:
                 continue
+
+        if not candles:
+            raise HTTPException(status_code=404, detail="No candle data could be processed")
+
         return {"symbol": symbol, "interval": interval, "candles": candles}
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=f"Error fetching data: {str(e)}")
 
 
 @app.post("/predict", response_model=PredictResponse)

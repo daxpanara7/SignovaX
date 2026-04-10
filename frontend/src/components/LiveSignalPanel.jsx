@@ -3,7 +3,7 @@ import { fetchLiveSignal, fetchTicker24 } from '../services/marketApi';
 import { useChartStore } from '../stores/chartStore';
 import { usePriceStore } from '../stores/priceStore';
 
-const SYMBOLS   = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT'];
+const SYMBOLS   = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT', 'NIFTY50', 'SENSEX'];
 const INTERVALS = ['1m', '5m', '15m', '1h', '4h'];
 
 function Badge({ signal }) {
@@ -71,13 +71,20 @@ export default function LiveSignalPanel() {
     const sym  = symbolRef.current;
     const intv = intervalRef.current;
 
-    Promise.all([fetchLiveSignal(sym, intv), fetchTicker24(sym)])
+    // For Indian indices, skip ticker24 as it's not available
+    const isIndex = ['NIFTY50', 'SENSEX'].includes(sym);
+    const tickerPromise = isIndex ? Promise.resolve(null) : fetchTicker24(sym);
+
+    Promise.all([fetchLiveSignal(sym, intv), tickerPromise])
       .then(([sig, tick]) => {
         setSignal(sig);
         setTicker(tick);
         setUpdatedAt(new Date());
       })
-      .catch(() => setError('Fetch failed'))
+      .catch((err) => {
+        console.error('Signal fetch error:', err);
+        setError('Fetch failed');
+      })
       .finally(() => {
         setLoading(false);
         isFetching.current = false;
