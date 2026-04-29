@@ -73,16 +73,23 @@ const ChartPanel = () => {
       candleSeriesRef.current = series;
 
       // ResizeObserver keeps chart sized correctly at all times
+      // Debounced to prevent "ResizeObserver loop" errors on rapid resize (e.g. Ctrl+-)
+      let rafId = null;
       const ro = new ResizeObserver(() => {
-        if (!container || !chartRef.current) return;
-        chartRef.current.applyOptions({
-          width:  container.clientWidth,
-          height: container.clientHeight,
+        if (rafId) cancelAnimationFrame(rafId);
+        rafId = requestAnimationFrame(() => {
+          if (!container || !chartRef.current) return;
+          chartRef.current.applyOptions({
+            width:  container.clientWidth,
+            height: container.clientHeight,
+          });
+          rafId = null;
         });
       });
       ro.observe(container);
 
       return () => {
+        if (rafId) cancelAnimationFrame(rafId);
         ro.disconnect();
         chartRef.current?.remove();
         chartRef.current        = null;
