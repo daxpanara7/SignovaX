@@ -1,6 +1,5 @@
 import React, { useState, useRef } from 'react';
 import { useSignalStore, useAlertStore, useBacktestStore } from '../stores';
-import { mockHistoricalTrades } from '../data/mockData'; // fallback only
 import { Download, Play } from 'lucide-react';
 
 const ML_API = process.env.REACT_APP_ML_API_URL || 'http://localhost:8000';
@@ -17,12 +16,11 @@ const BottomPanel = () => {
   const [btRisk,      setBtRisk]      = useState(config.risk_per_trade  || 1);
   const [btError,     setBtError]     = useState(null);
 
-  // Signal history from store
+  // Signal history from store — only use mock if truly nothing has been generated yet
   const { signalHistory, historicalSignals } = useSignalStore();
-  // Use store history if available, else fall back to mock
-  const allSignals = (signalHistory?.length > 0 ? signalHistory : null)
-                  || (historicalSignals?.length > 0 ? historicalSignals : null)
-                  || mockHistoricalTrades;
+  // signalHistory = signals added by SignalPanel during this session (real)
+  // historicalSignals = initialized with mock in store — ignore it, use empty array as base
+  const allSignals = signalHistory?.length > 0 ? signalHistory : [];
 
   // Alerts from store
   const { alerts, markAsRead } = useAlertStore();

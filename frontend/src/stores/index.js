@@ -1,13 +1,12 @@
 import { create } from 'zustand';
-import { mockActiveSignal, mockHistoricalTrades } from '../data/mockData';
 
 // Import individual stores
 export { usePriceStore } from './priceStore';
 
 export const useSignalStore = create((set, get) => ({
-  activeSignal: mockActiveSignal,
-  historicalSignals: mockHistoricalTrades,
-  signalHistory: mockHistoricalTrades, // alias used by SignalPanel
+  activeSignal: null,
+  historicalSignals: [], // starts empty — populated by real signals
+  signalHistory: [],     // alias used by SignalPanel & BottomPanel
   scanning: false,
   lastAnalyzed: Date.now() - 120000,
   mlFilterEnabled: true,
