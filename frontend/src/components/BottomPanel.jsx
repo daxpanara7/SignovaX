@@ -65,30 +65,10 @@ function AlertsTab({ alerts, markAsRead, formatTime }) {
   };
 
   const SETTINGS = [
-    {
-      key: 'telegram',
-      label: 'Telegram Alerts',
-      desc: 'Send signals to your Telegram bot',
-      icon: '📱',
-    },
-    {
-      key: 'email',
-      label: 'Email Alerts',
-      desc: 'Send signals to your email',
-      icon: '📧',
-    },
-    {
-      key: 'browser',
-      label: 'Browser Notifications',
-      desc: browserPermission === 'denied' ? '⚠ Permission denied in browser' : 'Desktop push notifications',
-      icon: '🔔',
-    },
-    {
-      key: 'sound',
-      label: 'Sound Alerts',
-      desc: 'Play a beep on new signal',
-      icon: '🔊',
-    },
+    { key: 'telegram', label: 'Telegram Alerts'      },
+    { key: 'email',    label: 'Email Alerts'          },
+    { key: 'browser',  label: 'Browser Notifications' },
+    { key: 'sound',    label: 'Sound Alerts'          },
   ];
 
   return (
@@ -123,30 +103,13 @@ function AlertsTab({ alerts, markAsRead, formatTime }) {
       {/* Settings panel */}
       <div className="w-80 border-l border-[var(--border)] p-4">
         <div className="text-sm font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>Alert Settings</div>
-        <div className="space-y-4">
-          {SETTINGS.map(({ key, label, desc, icon }) => (
-            <div key={key}>
-              <div className="flex items-center justify-between mb-1">
-                <div className="flex items-center gap-2">
-                  <span>{icon}</span>
-                  <span className="text-sm" style={{ color: 'var(--text-primary)' }}>{label}</span>
-                </div>
-                <Toggle on={!!notifications[key]} onChange={() => toggle(key)} />
-              </div>
-              <p className="text-xs ml-6" style={{ color: 'var(--text-muted)' }}>{desc}</p>
+        <div className="space-y-3">
+          {SETTINGS.map(({ key, label }) => (
+            <div key={key} className="flex items-center justify-between">
+              <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>{label}</span>
+              <Toggle on={!!notifications[key]} onChange={() => toggle(key)} />
             </div>
           ))}
-        </div>
-
-        {/* What each toggle does */}
-        <div className="mt-6 p-3 rounded-lg" style={{ backgroundColor: 'var(--bg-tertiary)' }}>
-          <div className="text-xs font-semibold mb-2" style={{ color: 'var(--text-secondary)' }}>WHAT THESE DO</div>
-          <div className="space-y-1 text-xs" style={{ color: 'var(--text-muted)' }}>
-            <div>📱 <b style={{ color: 'var(--text-secondary)' }}>Telegram</b> — requires bot token in Settings</div>
-            <div>📧 <b style={{ color: 'var(--text-secondary)' }}>Email</b> — requires SMTP config in Settings</div>
-            <div>🔔 <b style={{ color: 'var(--text-secondary)' }}>Browser</b> — desktop popup on new signal</div>
-            <div>🔊 <b style={{ color: 'var(--text-secondary)' }}>Sound</b> — beep when signal fires</div>
-          </div>
         </div>
       </div>
     </div>
