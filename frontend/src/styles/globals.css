@@ -180,7 +180,7 @@ button {
 
 /* ── BottomPanel desktop height ────────────────────────────────── */
 .bottom-panel-root {
-  height: 260px;
+  height: 300px;
   flex-shrink: 0;
 }
 
@@ -204,7 +204,7 @@ button {
 @media (min-width: 1600px) {
   .signal-panel-root  { width: 280px; }
   .live-panel-desktop { width: 340px; }
-  .bottom-panel-root  { height: 280px; }
+  .bottom-panel-root  { height: 300px; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -213,7 +213,7 @@ button {
 @media (min-width: 1400px) and (max-width: 1599px) {
   .signal-panel-root  { width: 240px; }
   .live-panel-desktop { width: 300px; }
-  .bottom-panel-root  { height: 260px; }
+  .bottom-panel-root  { height: 300px; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════
