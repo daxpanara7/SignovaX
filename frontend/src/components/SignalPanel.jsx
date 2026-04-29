@@ -10,11 +10,12 @@ import { Copy, CheckCircle, X, TrendingUp, TrendingDown, Minus, RefreshCw } from
 const MTF_TIMEFRAMES = ['4h', '1h', '15m', '5m'];
 
 function deriveRegime(signal) {
-  if (!signal) return { status: 'UNKNOWN', color: 'yellow', icon: '⚪' };
-  if (signal.signal === 'BUY'  && signal.confidence >= 70) return { status: 'TRENDING UP',   color: 'green',  icon: '🟢' };
-  if (signal.signal === 'SELL' && signal.confidence >= 70) return { status: 'TRENDING DOWN',  color: 'red',    icon: '🔴' };
-  if (signal.confidence >= 60) return { status: 'RANGING',       color: 'yellow', icon: '🟡' };
-  return { status: 'CONSOLIDATING', color: 'yellow', icon: '⚪' };
+  if (!signal) return { status: 'LOADING...', color: 'yellow', icon: '⏳' };
+  if (signal.signal === 'BUY'  && signal.confidence >= 70) return { status: 'TRENDING UP',    color: 'green',  icon: '🟢' };
+  if (signal.signal === 'SELL' && signal.confidence >= 70) return { status: 'TRENDING DOWN',   color: 'red',    icon: '🔴' };
+  if (signal.signal === 'BUY'  && signal.confidence >= 50) return { status: 'MILD BULLISH',    color: 'green',  icon: '🟡' };
+  if (signal.signal === 'SELL' && signal.confidence >= 50) return { status: 'MILD BEARISH',    color: 'red',    icon: '🟡' };
+  return { status: 'RANGING / NEUTRAL', color: 'yellow', icon: '🟡' };
 }
 
 const SignalPanel = () => {
@@ -159,10 +160,13 @@ const SignalPanel = () => {
 
       {/* ── Active Signal Card ── */}
       {loading && !signal ? (
-        <div data-testid="scanning-state" className="m-3 p-8 text-center rounded-lg" style={{ backgroundColor: 'var(--bg-tertiary)' }}>
-          <div className="w-16 h-16 border-4 border-[var(--accent-blue)] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <div className="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>SCANNING MARKET...</div>
-          <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>{symbol} · {timeframe}</div>
+        <div data-testid="scanning-state" className="m-3 p-6 text-center rounded-lg" style={{ backgroundColor: 'var(--bg-tertiary)' }}>
+          <div className="w-12 h-12 border-4 border-[var(--accent-blue)] border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
+          <div className="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Fetching signal...</div>
+          <div className="text-xs mb-2" style={{ color: 'var(--text-secondary)' }}>{symbol} · {timeframe.toUpperCase()}</div>
+          <div className="text-xs" style={{ color: 'var(--text-muted)' }}>
+            Using EMA/RSI fallback if ML is offline
+          </div>
         </div>
       ) : signal ? (
         <div data-testid="active-signal-card" className="m-3 rounded-lg overflow-hidden" style={{ backgroundColor: 'var(--bg-tertiary)' }}>
@@ -288,10 +292,10 @@ const SignalPanel = () => {
           </div>
         </div>
       ) : (
-        <div data-testid="scanning-state" className="m-3 p-8 text-center rounded-lg" style={{ backgroundColor: 'var(--bg-tertiary)' }}>
-          <div className="w-16 h-16 border-4 border-[var(--accent-blue)] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <div className="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>SCANNING MARKET...</div>
-          <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>{symbol} · {timeframe}</div>
+        <div data-testid="scanning-state" className="m-3 p-6 text-center rounded-lg" style={{ backgroundColor: 'var(--bg-tertiary)' }}>
+          <div className="w-12 h-12 border-4 border-[var(--accent-blue)] border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
+          <div className="text-sm font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Fetching signal...</div>
+          <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>{symbol} · {timeframe.toUpperCase()}</div>
         </div>
       )}
 

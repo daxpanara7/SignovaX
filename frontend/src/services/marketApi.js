@@ -151,12 +151,18 @@ async function fetchCandlesCached(symbol, interval, limit) {
 
 /**
  * Get live BUY/SELL/HOLD signal.
- * Priority: ML API → proxy → client-side
+ * Strategy: run client-side EMA/RSI immediately (fast), then try ML API in background.
+ * If ML responds within 8s, upgrade the result. Otherwise client-side result stands.
  */
 export async function fetchLiveSignal(symbol = 'BTCUSDT', interval = '15m') {
-  // 1. Try ML API (FastAPI /predict) — short timeout so fallback is fast
+  // Always fetch candles first (needed for both client-side and ML)
+  const candles = await fetchCandlesCached(symbol, interval, 300);
+
+  // 1. Run client-side immediately — always returns fast
+  const clientResult = calcSignalClientSide(candles, symbol);
+
+  // 2. Try ML API with a short timeout (4s) — if Render is awake it responds fast
   try {
-    const candles = await fetchCandlesCached(symbol, interval, 300);
     const payload = {
       candles: candles.map(c => ({
         open_time: new Date(c.time * 1000).toISOString(),
@@ -168,7 +174,7 @@ export async function fetchLiveSignal(symbol = 'BTCUSDT', interval = '15m') {
       })),
       atr_sl_multiplier: 1.5,
     };
-    const result = await post(`${ML_API}/predict`, payload, 15000); // 15s timeout
+    const result = await post(`${ML_API}/predict`, payload, 4000); // 4s — fail fast
     return {
       symbol,
       signal:       result.signal,
@@ -181,12 +187,12 @@ export async function fetchLiveSignal(symbol = 'BTCUSDT', interval = '15m') {
       xgbPred:      result.xgb_pred,
       rfPred:       result.rf_pred,
       smcPred:      result.smc_pred,
-      ema20:     candles[candles.length - 1]?.close ?? 0,
-      ema50:     candles[candles.length - 1]?.close ?? 0,
-      rsi:       50,
+      ema20:     clientResult.ema20,
+      ema50:     clientResult.ema50,
+      rsi:       clientResult.rsi,
       atr:       Math.abs(result.entry - result.stop_loss),
-      swingHigh: Math.max(...candles.slice(-20).map(c => c.high)),
-      swingLow:  Math.min(...candles.slice(-20).map(c => c.low)),
+      swingHigh: clientResult.swingHigh,
+      swingLow:  clientResult.swingLow,
       reasoning: [
         `XGBoost: ${result.xgb_pred}`,
         `Random Forest: ${result.rf_pred}`,
@@ -197,20 +203,18 @@ export async function fetchLiveSignal(symbol = 'BTCUSDT', interval = '15m') {
       source: 'ml',
     };
   } catch (err) {
-    console.warn('ML API predict failed, falling back to client-side:', err.message);
-    /* fall through */
+    console.warn('ML API unavailable, using client-side signal:', err.message);
   }
 
-  // 2. Try proxy
+  // 3. Try proxy (if configured)
   if (PROXY) {
     try {
-      return await get(`${PROXY}/api/signals/live?symbol=${symbol}&interval=${interval}`, 6000);
+      return await get(`${PROXY}/api/signals/live?symbol=${symbol}&interval=${interval}`, 3000);
     } catch { /* fall through */ }
   }
 
-  // 3. Client-side fallback
-  const candles = await fetchCandlesCached(symbol, interval, 100);
-  return calcSignalClientSide(candles, symbol);
+  // 4. Return client-side result (always available)
+  return clientResult;
 }
 
 // ─── Client-side signal fallback (runs in browser if proxy is down) ───────────
