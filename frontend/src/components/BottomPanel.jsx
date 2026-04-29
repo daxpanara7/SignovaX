@@ -326,39 +326,46 @@ const BottomPanel = () => {
         {/* ── Backtest Tab ── */}
         {activeTab === 'backtest' && (
           <div className="h-full flex">
-            <div className="w-1/3 p-3 border-r border-[var(--border)] overflow-y-auto" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div className="w-1/3 border-r border-[var(--border)]" style={{
+              display: 'flex', flexDirection: 'column', gap: 8,
+              padding: '10px 12px', overflowY: 'auto',
+            }}>
               <div>
-                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Symbol</label>
+                <label style={{ display: 'block', fontSize: 10, color: 'var(--text-secondary)', marginBottom: 3 }}>Symbol</label>
                 <select data-testid="backtest-symbol" value={btSymbol} onChange={e => setBtSymbol(e.target.value)}
-                  className="w-full px-2 py-1.5 text-xs rounded border-0" style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}>
+                  style={{ width: '100%', padding: '5px 8px', fontSize: 11, borderRadius: 4, border: 'none', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}>
                   <option>BTCUSDT</option><option>ETHUSDT</option><option>SOLUSDT</option><option>BNBUSDT</option>
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Timeframe</label>
+                <label style={{ display: 'block', fontSize: 10, color: 'var(--text-secondary)', marginBottom: 3 }}>Timeframe</label>
                 <select data-testid="backtest-timeframe" value={btTimeframe} onChange={e => setBtTimeframe(e.target.value)}
-                  className="w-full px-2 py-1.5 text-xs rounded border-0" style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}>
+                  style={{ width: '100%', padding: '5px 8px', fontSize: 11, borderRadius: 4, border: 'none', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}>
                   <option>1m</option><option>5m</option><option>15m</option><option>1h</option><option>4h</option>
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Initial Balance ($)</label>
+                <label style={{ display: 'block', fontSize: 10, color: 'var(--text-secondary)', marginBottom: 3 }}>Initial Balance ($)</label>
                 <input data-testid="backtest-balance" type="number" value={btBalance} onChange={e => setBtBalance(e.target.value)}
-                  className="w-full px-2 py-1.5 text-xs rounded border-0" style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)' }} />
+                  style={{ width: '100%', padding: '5px 8px', fontSize: 11, borderRadius: 4, border: 'none', backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)' }} />
               </div>
               <div>
-                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Risk % per trade: {btRisk}%</label>
+                <label style={{ display: 'block', fontSize: 10, color: 'var(--text-secondary)', marginBottom: 3 }}>Risk % per trade: {btRisk}%</label>
                 <input data-testid="backtest-risk-slider" type="range" min="0.5" max="3" step="0.1" value={btRisk}
-                  onChange={e => setBtRisk(e.target.value)} className="w-full" />
+                  onChange={e => setBtRisk(e.target.value)} style={{ width: '100%' }} />
               </div>
               <button data-testid="run-backtest-button" onClick={runBacktest} disabled={isRunning}
-                className="w-full py-2 text-xs font-medium rounded flex items-center justify-center gap-2 transition-colors"
-                style={{ backgroundColor: 'var(--accent-blue)', color: 'white', opacity: isRunning ? 0.6 : 1 }}>
-                <Play className="w-3.5 h-3.5" />
+                style={{
+                  width: '100%', padding: '8px', fontSize: 11, fontWeight: 700, borderRadius: 5,
+                  border: 'none', cursor: isRunning ? 'not-allowed' : 'pointer',
+                  backgroundColor: 'var(--accent-blue)', color: 'white', opacity: isRunning ? 0.6 : 1,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                }}>
+                <Play style={{ width: 13, height: 13 }} />
                 {isRunning ? 'Running...' : 'RUN BACKTEST'}
               </button>
-              {isRunning && <div className="text-xs text-center" style={{ color: 'var(--text-secondary)' }}>Running SMC analysis...</div>}
-              {btError  && <div className="text-xs text-center" style={{ color: 'var(--accent-red)' }}>{btError}</div>}
+              {isRunning && <div style={{ fontSize: 10, textAlign: 'center', color: 'var(--text-secondary)' }}>Running SMC analysis...</div>}
+              {btError   && <div style={{ fontSize: 10, textAlign: 'center', color: 'var(--accent-red)' }}>{btError}</div>}
             </div>
             <div className="flex-1 p-4">
               {backtestResults ? (
