@@ -141,10 +141,39 @@ export const useAlertStore = create((set, get) => ({
     email_password: ''
   },
   
-  addAlert: (alert) => set((state) => ({
-    alerts: [{ ...alert, id: Date.now(), timestamp: new Date() }, ...state.alerts],
-    unreadCount: state.unreadCount + 1
-  })),
+  addAlert: (alert) => set((state) => {
+    const newAlert = { ...alert, id: Date.now(), timestamp: new Date() };
+
+    // Browser notification
+    if (state.notifications.browser && typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+      try {
+        new Notification(`${newAlert.symbol || 'SMC Terminal'} — ${newAlert.message}`, {
+          icon: '/favicon.ico',
+          badge: '/favicon.ico',
+        });
+      } catch { /* ignore */ }
+    }
+
+    // Sound alert
+    if (state.notifications.sound) {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.frequency.value = newAlert.severity === 'success' ? 880 : 440;
+        gain.gain.setValueAtTime(0.3, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.4);
+      } catch { /* AudioContext not available */ }
+    }
+
+    return {
+      alerts: [newAlert, ...state.alerts],
+      unreadCount: state.unreadCount + 1,
+    };
+  }),
   clearAlerts: () => set({ alerts: [], unreadCount: 0 }),
   markAsRead: () => set({ unreadCount: 0 }),
   updateNotifications: (notifications) => set({ notifications }),

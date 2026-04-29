@@ -4,6 +4,155 @@ import { Download, Play } from 'lucide-react';
 
 const ML_API = process.env.REACT_APP_ML_API_URL || 'http://localhost:8000';
 
+// ── Reusable Toggle switch ────────────────────────────────────────────────────
+function Toggle({ on, onChange }) {
+  return (
+    <div
+      onClick={onChange}
+      style={{
+        width: 44, height: 24, borderRadius: 12, position: 'relative', cursor: 'pointer',
+        backgroundColor: on ? 'var(--accent-blue)' : 'var(--bg-hover)',
+        transition: 'background-color 0.2s',
+        flexShrink: 0,
+      }}
+    >
+      <div style={{
+        width: 18, height: 18, borderRadius: '50%',
+        backgroundColor: on ? 'white' : 'var(--text-muted)',
+        position: 'absolute', top: 3,
+        left: on ? 23 : 3,
+        transition: 'left 0.2s, background-color 0.2s',
+      }} />
+    </div>
+  );
+}
+
+// ── Alerts tab — extracted so it can use its own state ────────────────────────
+function AlertsTab({ alerts, markAsRead, formatTime }) {
+  const { notifications, updateNotifications } = useAlertStore();
+  const [browserPermission, setBrowserPermission] = useState(
+    typeof Notification !== 'undefined' ? Notification.permission : 'default'
+  );
+
+  const toggle = async (key) => {
+    const next = !notifications[key];
+
+    // Browser Notifications: request permission when enabling
+    if (key === 'browser' && next) {
+      if (typeof Notification !== 'undefined' && Notification.permission !== 'granted') {
+        const perm = await Notification.requestPermission();
+        setBrowserPermission(perm);
+        if (perm !== 'granted') return; // don't enable if denied
+      }
+    }
+
+    // Sound Alerts: play a test beep when enabling
+    if (key === 'sound' && next) {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.frequency.value = 880;
+        gain.gain.setValueAtTime(0.3, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+        osc.start(ctx.currentTime);
+        osc.stop(ctx.currentTime + 0.3);
+      } catch { /* AudioContext not available */ }
+    }
+
+    updateNotifications({ ...notifications, [key]: next });
+  };
+
+  const SETTINGS = [
+    {
+      key: 'telegram',
+      label: 'Telegram Alerts',
+      desc: 'Send signals to your Telegram bot',
+      icon: '📱',
+    },
+    {
+      key: 'email',
+      label: 'Email Alerts',
+      desc: 'Send signals to your email',
+      icon: '📧',
+    },
+    {
+      key: 'browser',
+      label: 'Browser Notifications',
+      desc: browserPermission === 'denied' ? '⚠ Permission denied in browser' : 'Desktop push notifications',
+      icon: '🔔',
+    },
+    {
+      key: 'sound',
+      label: 'Sound Alerts',
+      desc: 'Play a beep on new signal',
+      icon: '🔊',
+    },
+  ];
+
+  return (
+    <div className="h-full flex">
+      {/* Alert list */}
+      <div className="flex-1 p-4 space-y-2 overflow-y-auto" onClick={markAsRead}>
+        {alerts.length > 0 ? alerts.map((alert) => (
+          <div key={alert.id} data-testid={`alert-${alert.id}`}
+            className="flex items-start gap-3 p-3 rounded-lg"
+            style={{ backgroundColor: 'var(--bg-tertiary)' }}>
+            <span className="text-xl">
+              {alert.severity === 'success' ? '🟢' : alert.severity === 'error' ? '🔴' : '🟡'}
+            </span>
+            <div className="flex-1">
+              <div className="text-xs mb-1" style={{ color: 'var(--text-secondary)' }}>
+                {alert.timestamp ? formatTime(alert.timestamp) : 'Just now'}
+              </div>
+              <div className="text-sm" style={{ color: 'var(--text-primary)' }}>
+                {alert.symbol && <span className="font-semibold">{alert.symbol} — </span>}
+                {alert.message}
+              </div>
+            </div>
+          </div>
+        )) : (
+          <div className="text-center p-6" style={{ color: 'var(--text-secondary)' }}>
+            <div className="text-3xl mb-2">🔔</div>
+            No alerts yet — signals will appear here automatically
+          </div>
+        )}
+      </div>
+
+      {/* Settings panel */}
+      <div className="w-80 border-l border-[var(--border)] p-4">
+        <div className="text-sm font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>Alert Settings</div>
+        <div className="space-y-4">
+          {SETTINGS.map(({ key, label, desc, icon }) => (
+            <div key={key}>
+              <div className="flex items-center justify-between mb-1">
+                <div className="flex items-center gap-2">
+                  <span>{icon}</span>
+                  <span className="text-sm" style={{ color: 'var(--text-primary)' }}>{label}</span>
+                </div>
+                <Toggle on={!!notifications[key]} onChange={() => toggle(key)} />
+              </div>
+              <p className="text-xs ml-6" style={{ color: 'var(--text-muted)' }}>{desc}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* What each toggle does */}
+        <div className="mt-6 p-3 rounded-lg" style={{ backgroundColor: 'var(--bg-tertiary)' }}>
+          <div className="text-xs font-semibold mb-2" style={{ color: 'var(--text-secondary)' }}>WHAT THESE DO</div>
+          <div className="space-y-1 text-xs" style={{ color: 'var(--text-muted)' }}>
+            <div>📱 <b style={{ color: 'var(--text-secondary)' }}>Telegram</b> — requires bot token in Settings</div>
+            <div>📧 <b style={{ color: 'var(--text-secondary)' }}>Email</b> — requires SMTP config in Settings</div>
+            <div>🔔 <b style={{ color: 'var(--text-secondary)' }}>Browser</b> — desktop popup on new signal</div>
+            <div>🔊 <b style={{ color: 'var(--text-secondary)' }}>Sound</b> — beep when signal fires</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const BottomPanel = () => {
   const [activeTab,    setActiveTab]    = useState('signals');
   const [signalFilter, setSignalFilter] = useState('all');
@@ -361,51 +510,7 @@ const BottomPanel = () => {
 
         {/* ── Alerts Tab ── */}
         {activeTab === 'alerts' && (
-          <div className="h-full flex">
-            <div className="flex-1 p-4 space-y-2 overflow-y-auto" onClick={markAsRead}>
-              {alerts.length > 0 ? alerts.map((alert) => (
-                <div key={alert.id} data-testid={`alert-${alert.id}`}
-                  className="flex items-start gap-3 p-3 rounded-lg"
-                  style={{ backgroundColor: 'var(--bg-tertiary)' }}>
-                  <span className="text-xl">
-                    {alert.severity === 'success' ? '🟢' : alert.severity === 'error' ? '🔴' : '🟡'}
-                  </span>
-                  <div className="flex-1">
-                    <div className="text-xs mb-1" style={{ color: 'var(--text-secondary)' }}>
-                      {alert.timestamp ? formatTime(alert.timestamp) : 'Just now'}
-                    </div>
-                    <div className="text-sm" style={{ color: 'var(--text-primary)' }}>
-                      {alert.symbol && <span className="font-semibold">{alert.symbol} — </span>}
-                      {alert.message}
-                    </div>
-                  </div>
-                </div>
-              )) : (
-                <div className="text-center p-6" style={{ color: 'var(--text-secondary)' }}>
-                  <div className="text-3xl mb-2">🔔</div>
-                  No alerts yet — signals will appear here automatically
-                </div>
-              )}
-            </div>
-            <div className="w-80 border-l border-[var(--border)] p-4">
-              <div className="text-sm font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>Alert Settings</div>
-              <div className="space-y-3">
-                {[
-                  { label: 'Telegram Alerts',      key: 'telegram' },
-                  { label: 'Email Alerts',          key: 'email'    },
-                  { label: 'Browser Notifications', key: 'browser', on: true },
-                  { label: 'Sound Alerts',          key: 'sound',   on: true },
-                ].map(({ label, key, on }) => (
-                  <div key={key} className="flex items-center justify-between">
-                    <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>{label}</span>
-                    <div className="w-11 h-6 rounded-full relative cursor-pointer" style={{ backgroundColor: on ? 'var(--accent-blue)' : 'var(--bg-hover)' }}>
-                      <div className="w-5 h-5 rounded-full absolute top-0.5 transition-all" style={{ backgroundColor: on ? 'white' : 'var(--text-muted)', right: on ? '2px' : undefined, left: on ? undefined : '2px' }} />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
+          <AlertsTab alerts={alerts} markAsRead={markAsRead} formatTime={formatTime} />
         )}
 
       </div>
