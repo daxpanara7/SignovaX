@@ -141,3 +141,286 @@ body {
 .border-bearish {
   border-color: var(--accent-red);
 }
+
+
+/* ═══════════════════════════════════════════════════════════════════
+   RESPONSIVE STYLES — Mobile & Tablet Friendly
+   Strategy: single scrollable column on mobile, original on desktop
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Prevent iOS rubber-band bounce on the root */
+html {
+  overscroll-behavior: none;
+}
+
+/* Prevent zoom on input focus (iOS Safari) */
+input, select, textarea {
+  font-size: max(16px, 1em);
+}
+
+/* Better tap targets */
+button {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+/* ── SignalPanel desktop width ─────────────────────────────────── */
+.signal-panel-root {
+  width: 280px; /* replaces w-70 */
+  flex-shrink: 0;
+}
+
+/* ── BottomPanel desktop height ────────────────────────────────── */
+.bottom-panel-root {
+  height: 280px; /* replaces h-70 */
+  flex-shrink: 0;
+}
+
+/* ── Mobile layout: hidden on desktop ─────────────────────────── */
+.app-mobile-layout {
+  display: none;
+}
+
+/* ── Mobile header: hidden on desktop ─────────────────────────── */
+.app-header-mobile {
+  display: none;
+}
+
+/* ── Desktop header: shown on desktop ─────────────────────────── */
+.app-header-desktop {
+  display: flex;
+}
+
+/* ── Desktop layout + bottom: shown on desktop ────────────────── */
+.app-desktop-layout {
+  display: flex;
+}
+.app-desktop-bottom {
+  display: block;
+}
+
+/* ── Mobile watchlist strip: hidden on desktop ─────────────────── */
+.mobile-watchlist-strip {
+  display: none;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   TABLET  768px – 1023px
+   ═══════════════════════════════════════════════════════════════════ */
+@media (min-width: 768px) and (max-width: 1023px) {
+  /* Keep desktop layout but shrink right panel */
+  .app-desktop-layout {
+    display: flex;
+  }
+  .app-desktop-bottom {
+    display: block;
+  }
+  .app-mobile-layout {
+    display: none;
+  }
+  .app-header-desktop {
+    display: flex;
+  }
+  .app-header-mobile {
+    display: none;
+  }
+
+  /* Shrink right panel on tablet */
+  .app-desktop-layout > div:last-child {
+    width: 280px !important;
+  }
+
+  /* Shrink signal panel */
+  .signal-panel-root {
+    width: 240px;
+  }
+
+  /* Bottom panel shorter on tablet */
+  .bottom-panel-root {
+    height: 220px;
+  }
+
+  /* Header: hide some items to fit */
+  .app-header-desktop .flex.items-center.gap-4:last-child > div:first-child,
+  .app-header-desktop .flex.items-center.gap-4:last-child > div:nth-child(2) {
+    display: none;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   MOBILE  < 768px  (iPhone, Android phones)
+   ═══════════════════════════════════════════════════════════════════ */
+@media (max-width: 767px) {
+
+  /* Switch body to scrollable */
+  body {
+    overflow: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Root terminal: auto height, scrollable */
+  .trading-terminal {
+    height: auto !important;
+    min-height: 100vh;
+    overflow: visible !important;
+  }
+
+  /* Hide desktop header, show mobile header */
+  .app-header-desktop {
+    display: none !important;
+  }
+  .app-header-mobile {
+    display: block !important;
+  }
+
+  /* Hide desktop layout */
+  .app-desktop-layout {
+    display: none !important;
+  }
+  .app-desktop-bottom {
+    display: none !important;
+  }
+
+  /* Show mobile layout */
+  .app-mobile-layout {
+    display: block !important;
+  }
+
+  /* Watchlist strip visible */
+  .mobile-watchlist-strip {
+    display: block !important;
+  }
+
+  /* Chart: tall enough to be useful */
+  .mobile-chart-section {
+    height: 320px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* ChartPanel inside mobile: fill its container */
+  .mobile-chart-section > div {
+    height: 100% !important;
+  }
+
+  /* Section dividers */
+  .mobile-section-divider {
+    padding: 8px 14px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    color: var(--text-secondary);
+    background-color: var(--bg-primary);
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    text-transform: uppercase;
+  }
+
+  /* SignalPanel: full width, auto height */
+  .signal-panel-root {
+    width: 100% !important;
+    border-left: none !important;
+    overflow-y: visible !important;
+  }
+
+  /* BottomPanel: auto height so all content shows */
+  .bottom-panel-root {
+    height: auto !important;
+  }
+
+  /* BottomPanel inner content: auto height */
+  .bottom-panel-root .flex-1.overflow-hidden {
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  /* Signals table: horizontal scroll */
+  .bottom-panel-root table {
+    min-width: 580px;
+  }
+  .bottom-panel-root .flex-1.overflow-auto {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Backtest tab: stack vertically */
+  .bottom-panel-root .h-full.flex:not(.flex-col) {
+    flex-direction: column !important;
+    height: auto !important;
+  }
+  .bottom-panel-root .w-1\/3 {
+    width: 100% !important;
+    border-right: none !important;
+    border-bottom: 1px solid var(--border);
+  }
+  .bottom-panel-root .w-2\/5 {
+    width: 100% !important;
+    border-right: none !important;
+    border-bottom: 1px solid var(--border);
+    max-height: 300px;
+    overflow-y: auto;
+  }
+
+  /* Alerts: stack vertically */
+  .bottom-panel-root .w-80 {
+    width: 100% !important;
+    border-left: none !important;
+    border-top: 1px solid var(--border);
+  }
+
+  /* Backtest results grid: 2 cols on mobile */
+  .bottom-panel-root .grid-cols-4 {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  /* Performance chart: full width */
+  .bottom-panel-root .h-\[200px\] {
+    height: 160px !important;
+  }
+
+  /* Tab buttons: scrollable row */
+  .bottom-panel-root [data-testid="bottom-panel-tabs"] {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    flex-wrap: nowrap !important;
+    padding-bottom: 2px;
+  }
+  .bottom-panel-root [data-testid="bottom-panel-tabs"] button {
+    flex-shrink: 0;
+    padding: 6px 12px !important;
+    font-size: 11px !important;
+  }
+
+  /* Filter buttons row: scrollable */
+  .bottom-panel-root .flex.items-center.justify-between.p-3 {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  /* Scrollbar hidden on mobile */
+  ::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   SMALL MOBILE  < 390px  (iPhone SE, older phones)
+   ═══════════════════════════════════════════════════════════════════ */
+@media (max-width: 389px) {
+  .mobile-chart-section {
+    height: 260px;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   LARGE TABLET / SMALL LAPTOP  1024px+  (iPad Pro landscape, etc.)
+   ═══════════════════════════════════════════════════════════════════ */
+@media (min-width: 1024px) {
+  .signal-panel-root {
+    width: 280px;
+  }
+  .bottom-panel-root {
+    height: 280px;
+  }
+}

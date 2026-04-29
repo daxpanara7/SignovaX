@@ -68,7 +68,8 @@ const Header = ({ backendStatus = 'disconnected' }) => {
 
   return (
     <>
-      <header className="h-12 bg-[var(--bg-secondary)] border-b border-[var(--border)] flex items-center justify-between px-4 gap-4">
+      {/* ── Desktop header (single row) ── */}
+      <header className="app-header-desktop h-12 bg-[var(--bg-secondary)] border-b border-[var(--border)] flex items-center justify-between px-4 gap-4">
         {/* Left Side */}
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
@@ -234,6 +235,110 @@ const Header = ({ backendStatus = 'disconnected' }) => {
           <button data-testid="theme-toggle" onClick={() => setDarkMode(!darkMode)} style={{ color: 'var(--text-secondary)' }}>
             {darkMode ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />}
           </button>
+        </div>
+      </header>
+
+      {/* ── Mobile header (two compact rows) ── */}
+      <header className="app-header-mobile" style={{ backgroundColor: 'var(--bg-secondary)', borderBottom: '1px solid var(--border)' }}>
+        {/* Row 1: brand + price + icons */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 12px', gap: 8 }}>
+          {/* Brand */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
+            <Zap style={{ width: 14, height: 14, color: 'var(--accent-blue)' }} />
+            <span style={{ color: 'white', fontWeight: 700, fontSize: 12 }}>SMC</span>
+            <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, backgroundColor: 'var(--accent-purple)', color: 'white' }}>PRO</span>
+          </div>
+
+          {/* Price */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flex: 1, justifyContent: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 8px', borderRadius: 5, backgroundColor: 'var(--bg-tertiary)' }}>
+              <span style={{ fontFamily: 'monospace', fontWeight: 700, fontSize: 13, color: 'var(--text-primary)' }}>
+                ${currentPrice > 0 ? currentPrice.toLocaleString() : '—'}
+              </span>
+              <span style={{ fontSize: 10, color: priceChange >= 0 ? 'var(--accent-green)' : 'var(--accent-red)' }}>
+                {priceChange >= 0 ? '▲' : '▼'}{Math.abs(priceChange).toFixed(1)}%
+              </span>
+              {isConnected && <span style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: 'var(--accent-green)', display: 'inline-block' }} />}
+            </div>
+          </div>
+
+          {/* Icons */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+            {/* Paper/Live */}
+            <div style={{ display: 'flex', gap: 2, padding: '2px 3px', borderRadius: 5, backgroundColor: 'var(--bg-tertiary)' }}>
+              <button
+                data-testid="paper-mode-button"
+                onClick={() => setLiveMode(false)}
+                style={{ padding: '2px 7px', fontSize: 9, fontWeight: 700, borderRadius: 3, border: 'none', cursor: 'pointer',
+                  backgroundColor: !liveMode ? 'var(--accent-blue)' : 'transparent',
+                  color: !liveMode ? 'white' : 'var(--text-secondary)' }}
+              >PAPER</button>
+              <button
+                data-testid="live-mode-button"
+                onClick={() => setLiveMode(true)}
+                disabled={backendStatus !== 'connected'}
+                style={{ padding: '2px 7px', fontSize: 9, fontWeight: 700, borderRadius: 3, border: 'none', cursor: 'pointer',
+                  backgroundColor: liveMode ? 'var(--accent-red)' : 'transparent',
+                  color: liveMode ? 'white' : 'var(--text-secondary)' }}
+              >LIVE</button>
+            </div>
+            <button data-testid="alerts-button" style={{ position: 'relative', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 2 }}>
+              <Bell style={{ width: 16, height: 16 }} />
+              {unreadCount > 0 && (
+                <span style={{ position: 'absolute', top: -2, right: -2, width: 14, height: 14, borderRadius: '50%', fontSize: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'var(--accent-red)', color: 'white' }}>
+                  {unreadCount}
+                </span>
+              )}
+            </button>
+            <button data-testid="settings-button" onClick={() => setShowSettings(true)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', padding: 2 }}>
+              <Settings style={{ width: 16, height: 16 }} />
+            </button>
+          </div>
+        </div>
+
+        {/* Row 2: symbol + timeframes + HTF */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 12px 6px', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+          {/* Symbol buttons */}
+          <button onClick={() => setSymbol('BTCUSDT')} style={{ padding: '3px 8px', fontSize: 10, fontWeight: 700, borderRadius: 4, border: 'none', cursor: 'pointer', flexShrink: 0,
+            backgroundColor: symbol === 'BTCUSDT' ? 'var(--accent-blue)' : 'var(--bg-tertiary)',
+            color: symbol === 'BTCUSDT' ? 'white' : 'var(--text-secondary)' }}>BTC</button>
+          <button onClick={() => setSymbol('ETHUSDT')} style={{ padding: '3px 8px', fontSize: 10, fontWeight: 700, borderRadius: 4, border: 'none', cursor: 'pointer', flexShrink: 0,
+            backgroundColor: symbol === 'ETHUSDT' ? 'var(--accent-blue)' : 'var(--bg-tertiary)',
+            color: symbol === 'ETHUSDT' ? 'white' : 'var(--text-secondary)' }}>ETH</button>
+
+          <div style={{ width: 1, height: 14, backgroundColor: 'var(--border)', flexShrink: 0 }} />
+
+          {/* Timeframes */}
+          {timeframes.map((tf) => (
+            <button key={tf} data-testid={`timeframe-${tf}`} onClick={() => setTimeframe(tf)}
+              style={{ padding: '3px 7px', fontSize: 10, fontWeight: 600, borderRadius: 4, border: 'none', cursor: 'pointer', flexShrink: 0,
+                backgroundColor: timeframe === tf ? 'var(--accent-blue)' : 'var(--bg-tertiary)',
+                color: timeframe === tf ? 'white' : 'var(--text-secondary)' }}>
+              {tf}
+            </button>
+          ))}
+
+          <div style={{ width: 1, height: 14, backgroundColor: 'var(--border)', flexShrink: 0 }} />
+
+          {/* HTF */}
+          <span style={{ fontSize: 9, color: 'var(--text-secondary)', flexShrink: 0 }}>HTF:</span>
+          <select data-testid="htf-selector" value={htfTimeframe} onChange={(e) => setHTFTimeframe(e.target.value)}
+            style={{ padding: '3px 6px', fontSize: 10, borderRadius: 4, border: 'none', outline: 'none', flexShrink: 0,
+              backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}>
+            {htfOptions.map((tf) => <option key={tf} value={tf}>{tf}</option>)}
+          </select>
+
+          {/* Session */}
+          <div data-testid="session-badge" style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 7px', borderRadius: 4, backgroundColor: 'var(--bg-tertiary)', flexShrink: 0 }}>
+            <span style={{ width: 5, height: 5, borderRadius: '50%', backgroundColor: 'var(--accent-green)', display: 'inline-block' }} />
+            <span style={{ fontSize: 9, color: 'var(--text-primary)' }}>{getSession()}</span>
+          </div>
+
+          {/* Connection */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 3, padding: '3px 7px', borderRadius: 4, backgroundColor: 'var(--bg-tertiary)', flexShrink: 0 }}>
+            <connectionStatus.icon style={{ width: 10, height: 10, color: connectionStatus.color }} />
+            <span style={{ fontSize: 9, color: connectionStatus.color }}>{connectionStatus.text}</span>
+          </div>
         </div>
       </header>
 

@@ -74,7 +74,8 @@ function App() {
     >
       <Header backendStatus="connected" wsStatus={wsStatus} />
 
-      <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+      {/* ── Desktop / Tablet: original side-by-side layout ── */}
+      <div className="app-desktop-layout" style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
         <Watchlist wsStatus={wsStatus} />
 
         <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
@@ -92,7 +93,41 @@ function App() {
         </div>
       </div>
 
-      <BottomPanel />
+      {/* ── Desktop bottom panel ── */}
+      <div className="app-desktop-bottom">
+        <BottomPanel />
+      </div>
+
+      {/* ── Mobile: single scrollable column, everything visible ── */}
+      <div className="app-mobile-layout">
+        {/* Watchlist — horizontal scrollable strip */}
+        <div className="mobile-watchlist-strip">
+          <Watchlist wsStatus={wsStatus} mobileStrip />
+        </div>
+
+        {/* Chart — fixed height so it's usable */}
+        <div className="mobile-chart-section">
+          <ChartPanel />
+        </div>
+
+        {/* Live Signal Engine */}
+        <div className="mobile-section-divider">⚡ LIVE SIGNAL ENGINE</div>
+        <div style={{ backgroundColor: 'var(--bg-secondary)' }}>
+          <LiveSignalPanel />
+        </div>
+
+        {/* Signal Panel (MTF Bias, Market Regime, Stats, Risk) */}
+        <div className="mobile-section-divider">🎯 SIGNAL PANEL</div>
+        <div style={{ backgroundColor: 'var(--bg-secondary)' }}>
+          <SignalPanel />
+        </div>
+
+        {/* Bottom Panel (Signals table, Backtest, Performance, Journal, Alerts) */}
+        <div className="mobile-section-divider">📊 SIGNALS & BACKTEST</div>
+        <div className="mobile-bottom-section">
+          <BottomPanel />
+        </div>
+      </div>
     </div>
   );
 }

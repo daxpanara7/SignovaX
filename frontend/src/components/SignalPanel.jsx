@@ -17,7 +17,7 @@ const SignalPanel = () => {
   };
 
   return (
-    <div className="w-70 border-l border-[var(--border)] flex flex-col overflow-y-auto" style={{ backgroundColor: 'var(--bg-secondary)' }}>
+    <div className="signal-panel-root border-l border-[var(--border)] flex flex-col overflow-y-auto" style={{ backgroundColor: 'var(--bg-secondary)' }}>
       {/* Active Signal Card */}
       {signal ? (
         <div data-testid="active-signal-card" className="m-3 rounded-lg overflow-hidden" style={{ backgroundColor: 'var(--bg-tertiary)' }}>

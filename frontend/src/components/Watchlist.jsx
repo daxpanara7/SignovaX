@@ -60,7 +60,7 @@ const Sparkline = ({ change }) => {
   );
 };
 
-const Watchlist = () => {
+const Watchlist = ({ mobileStrip }) => {
   const [collapsed, setCollapsed] = useState(false);
   const { symbol: selectedSymbol, setSymbol } = useChartStore();
   const { prices, isConnected } = usePriceStore();
@@ -91,6 +91,54 @@ const Watchlist = () => {
     if (type === 'crypto') return prices[symbol] ?? null;
     return indexPrices[symbol] ?? null;
   };
+
+  // ── Mobile horizontal strip mode ────────────────────────────────────────
+  if (mobileStrip) {
+    return (
+      <div style={{
+        display: 'flex', flexDirection: 'row', overflowX: 'auto',
+        backgroundColor: 'var(--bg-secondary)',
+        borderBottom: '1px solid var(--border)',
+        WebkitOverflowScrolling: 'touch',
+        gap: 0,
+      }}>
+        {ALL_SYMBOLS.map(({ symbol, name, type }) => {
+          const live    = getPrice(symbol, type);
+          const price   = live?.price ?? null;
+          const change  = live?.change ?? null;
+          const isSelected = selectedSymbol === symbol;
+          const positive   = change == null ? true : change >= 0;
+
+          return (
+            <button key={symbol} onClick={() => setSymbol(symbol)}
+              style={{
+                flexShrink: 0,
+                padding: '8px 12px',
+                borderRight: '1px solid var(--border)',
+                borderBottom: isSelected ? '2px solid var(--accent-blue)' : '2px solid transparent',
+                backgroundColor: isSelected ? 'var(--bg-tertiary)' : 'transparent',
+                textAlign: 'left', cursor: 'pointer',
+              }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-primary)', whiteSpace: 'nowrap' }}>{name}</span>
+                <span style={{ fontSize: 10, color: positive ? '#10b981' : '#ef4444' }}>
+                  {change == null ? '—' : `${positive ? '+' : ''}${change.toFixed(2)}%`}
+                </span>
+              </div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-primary)', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>
+                {price == null
+                  ? <span style={{ color: 'var(--text-secondary)', fontSize: 10 }}>{type === 'index' ? 'Fetching...' : 'Loading...'}</span>
+                  : type === 'index'
+                    ? `₹${price.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`
+                    : `${price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: price > 100 ? 2 : 4 })}`
+                }
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
 
   if (collapsed) {
     return (

@@ -38,7 +38,7 @@ const BottomPanel = () => {
   };
 
   return (
-    <div className="h-70 border-t border-[var(--border)] flex flex-col" style={{ backgroundColor: 'var(--bg-secondary)' }}>
+    <div className="bottom-panel-root border-t border-[var(--border)] flex flex-col" style={{ backgroundColor: 'var(--bg-secondary)' }}>
       {/* Tab Navigation */}
       <div className="flex items-center gap-1 px-4 pt-2" data-testid="bottom-panel-tabs">
         {tabs.map((tab) => (
