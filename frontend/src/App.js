@@ -75,15 +75,15 @@ function App() {
       <Header backendStatus="connected" wsStatus={wsStatus} />
 
       {/* ── Desktop / Tablet: original side-by-side layout ── */}
-      <div className="app-desktop-layout" style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+      <div className="app-desktop-layout" style={{ display: 'flex', flex: 1, overflow: 'hidden', minWidth: 0 }}>
         <Watchlist wsStatus={wsStatus} />
 
-        <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+        <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minWidth: 0 }}>
           <ChartPanel />
           <SignalPanel />
         </div>
 
-        <div style={{
+        <div className="live-panel-desktop" style={{
           width: 340, flexShrink: 0,
           overflowY: 'auto',
           borderLeft: '1px solid var(--border)',

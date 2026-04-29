@@ -7,6 +7,7 @@ export { usePriceStore } from './priceStore';
 export const useSignalStore = create((set, get) => ({
   activeSignal: mockActiveSignal,
   historicalSignals: mockHistoricalTrades,
+  signalHistory: mockHistoricalTrades, // alias used by SignalPanel
   scanning: false,
   lastAnalyzed: Date.now() - 120000,
   mlFilterEnabled: true,
@@ -15,7 +16,8 @@ export const useSignalStore = create((set, get) => ({
   setActiveSignal: (signal) => set({ activeSignal: signal }),
   clearActiveSignal: () => set({ activeSignal: null }),
   addHistoricalSignal: (signal) => set((state) => ({
-    historicalSignals: [signal, ...state.historicalSignals]
+    historicalSignals: [signal, ...state.historicalSignals],
+    signalHistory:     [signal, ...state.signalHistory],
   })),
   setScanning: (scanning) => set({ scanning }),
   updateLastAnalyzed: () => set({ lastAnalyzed: Date.now() }),

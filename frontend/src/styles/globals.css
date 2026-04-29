@@ -164,87 +164,89 @@ button {
   touch-action: manipulation;
 }
 
-/* ── SignalPanel desktop width ─────────────────────────────────── */
+/* ── Critical: all flex children must be able to shrink ────────── */
+.app-desktop-layout,
+.app-desktop-layout > *,
+.app-desktop-layout .flex-1 {
+  min-width: 0;
+}
+
+/* ── SignalPanel: fixed width, never grows, never shrinks ──────── */
 .signal-panel-root {
-  width: 280px; /* replaces w-70 */
+  width: 260px;
   flex-shrink: 0;
+  min-width: 0;
 }
 
 /* ── BottomPanel desktop height ────────────────────────────────── */
 .bottom-panel-root {
-  height: 280px; /* replaces h-70 */
+  height: 260px;
+  flex-shrink: 0;
+}
+
+/* ── Live panel: fixed width ───────────────────────────────────── */
+.live-panel-desktop {
+  width: 320px;
   flex-shrink: 0;
 }
 
 /* ── Mobile layout: hidden on desktop ─────────────────────────── */
-.app-mobile-layout {
-  display: none;
-}
+.app-mobile-layout    { display: none; }
+.app-header-mobile    { display: none; }
+.app-header-desktop   { display: flex; }
+.app-desktop-layout   { display: flex; }
+.app-desktop-bottom   { display: block; }
+.mobile-watchlist-strip { display: none; }
 
-/* ── Mobile header: hidden on desktop ─────────────────────────── */
-.app-header-mobile {
-  display: none;
-}
-
-/* ── Desktop header: shown on desktop ─────────────────────────── */
-.app-header-desktop {
-  display: flex;
-}
-
-/* ── Desktop layout + bottom: shown on desktop ────────────────── */
-.app-desktop-layout {
-  display: flex;
-}
-.app-desktop-bottom {
-  display: block;
-}
-
-/* ── Mobile watchlist strip: hidden on desktop ─────────────────── */
-.mobile-watchlist-strip {
-  display: none;
+/* ═══════════════════════════════════════════════════════════════════
+   LARGE DESKTOP  ≥ 1600px — all panels at full size
+   ═══════════════════════════════════════════════════════════════════ */
+@media (min-width: 1600px) {
+  .signal-panel-root  { width: 280px; }
+  .live-panel-desktop { width: 340px; }
+  .bottom-panel-root  { height: 280px; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════
-   TABLET  768px – 1023px
+   MEDIUM DESKTOP  1400px – 1599px — slightly smaller panels
+   ═══════════════════════════════════════════════════════════════════ */
+@media (min-width: 1400px) and (max-width: 1599px) {
+  .signal-panel-root  { width: 240px; }
+  .live-panel-desktop { width: 300px; }
+  .bottom-panel-root  { height: 260px; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   SMALL DESKTOP  1200px – 1399px — hide SignalPanel
+   ═══════════════════════════════════════════════════════════════════ */
+@media (min-width: 1200px) and (max-width: 1399px) {
+  .signal-panel-root  { display: none !important; }
+  .live-panel-desktop { width: 280px; }
+  .bottom-panel-root  { height: 240px; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   COMPACT DESKTOP  1024px – 1199px — hide SignalPanel, shrink live
+   ═══════════════════════════════════════════════════════════════════ */
+@media (min-width: 1024px) and (max-width: 1199px) {
+  .signal-panel-root  { display: none !important; }
+  .live-panel-desktop { width: 260px; }
+  .bottom-panel-root  { height: 220px; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   TABLET  768px – 1023px — desktop layout, no signal panel
    ═══════════════════════════════════════════════════════════════════ */
 @media (min-width: 768px) and (max-width: 1023px) {
-  /* Keep desktop layout but shrink right panel */
-  .app-desktop-layout {
-    display: flex;
-  }
-  .app-desktop-bottom {
-    display: block;
-  }
-  .app-mobile-layout {
-    display: none;
-  }
-  .app-header-desktop {
-    display: flex;
-  }
-  .app-header-mobile {
-    display: none;
-  }
+  .app-desktop-layout  { display: flex; }
+  .app-desktop-bottom  { display: block; }
+  .app-mobile-layout   { display: none; }
+  .app-header-desktop  { display: flex; }
+  .app-header-mobile   { display: none; }
 
-  /* Shrink right panel on tablet */
-  .app-desktop-layout > div:last-child {
-    width: 280px !important;
-  }
-
-  /* Shrink signal panel */
-  .signal-panel-root {
-    width: 240px;
-  }
-
-  /* Bottom panel shorter on tablet */
-  .bottom-panel-root {
-    height: 220px;
-  }
-
-  /* Header: hide some items to fit */
-  .app-header-desktop .flex.items-center.gap-4:last-child > div:first-child,
-  .app-header-desktop .flex.items-center.gap-4:last-child > div:nth-child(2) {
-    display: none;
-  }
+  .signal-panel-root   { display: none !important; }
+  .live-panel-desktop  { width: 240px; }
+  .bottom-panel-root   { height: 200px; }
 }
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -266,32 +268,18 @@ button {
   }
 
   /* Hide desktop header, show mobile header */
-  .app-header-desktop {
-    display: none !important;
-  }
-  .app-header-mobile {
-    display: block !important;
-  }
+  .app-header-desktop { display: none !important; }
+  .app-header-mobile  { display: block !important; }
 
   /* Hide desktop layout */
-  .app-desktop-layout {
-    display: none !important;
-  }
-  .app-desktop-bottom {
-    display: none !important;
-  }
+  .app-desktop-layout { display: none !important; }
+  .app-desktop-bottom { display: none !important; }
 
   /* Show mobile layout */
-  .app-mobile-layout {
-    display: block !important;
-  }
+  .app-mobile-layout      { display: block !important; }
+  .mobile-watchlist-strip { display: block !important; }
 
-  /* Watchlist strip visible */
-  .mobile-watchlist-strip {
-    display: block !important;
-  }
-
-  /* Chart: tall enough to be useful */
+  /* Chart: tall enough to be usable */
   .mobile-chart-section {
     height: 320px;
     position: relative;
@@ -410,17 +398,5 @@ button {
 @media (max-width: 389px) {
   .mobile-chart-section {
     height: 260px;
-  }
-}
-
-/* ═══════════════════════════════════════════════════════════════════
-   LARGE TABLET / SMALL LAPTOP  1024px+  (iPad Pro landscape, etc.)
-   ═══════════════════════════════════════════════════════════════════ */
-@media (min-width: 1024px) {
-  .signal-panel-root {
-    width: 280px;
-  }
-  .bottom-panel-root {
-    height: 280px;
   }
 }

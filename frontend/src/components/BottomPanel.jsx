@@ -1,76 +1,153 @@
-import React, { useState } from 'react';
-import { mockHistoricalTrades, mockBacktestResults, mockEquityCurve, mockAlerts } from '../data/mockData';
-import { Download, Play, Filter } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { useSignalStore, useAlertStore, useBacktestStore } from '../stores';
+import { mockHistoricalTrades } from '../data/mockData'; // fallback only
+import { Download, Play } from 'lucide-react';
+
+const ML_API = process.env.REACT_APP_ML_API_URL || 'http://localhost:8000';
 
 const BottomPanel = () => {
-  const [activeTab, setActiveTab] = useState('signals');
-  const [backtestRunning, setBacktestRunning] = useState(false);
-  const [backtestResults, setBacktestResults] = useState(null);
+  const [activeTab,    setActiveTab]    = useState('signals');
+  const [signalFilter, setSignalFilter] = useState('all');
+
+  // Backtest state
+  const { config, results, isRunning, setResults, setRunning, updateConfig } = useBacktestStore();
+  const [btSymbol,    setBtSymbol]    = useState(config.symbol    || 'BTCUSDT');
+  const [btTimeframe, setBtTimeframe] = useState(config.timeframe || '15m');
+  const [btBalance,   setBtBalance]   = useState(config.initial_balance || 10000);
+  const [btRisk,      setBtRisk]      = useState(config.risk_per_trade  || 1);
+  const [btError,     setBtError]     = useState(null);
+
+  // Signal history from store
+  const { signalHistory, historicalSignals } = useSignalStore();
+  // Use store history if available, else fall back to mock
+  const allSignals = (signalHistory?.length > 0 ? signalHistory : null)
+                  || (historicalSignals?.length > 0 ? historicalSignals : null)
+                  || mockHistoricalTrades;
+
+  // Alerts from store
+  const { alerts, markAsRead } = useAlertStore();
 
   const tabs = [
-    { id: 'signals', label: 'Signals' },
-    { id: 'backtest', label: 'Backtest' },
-    { id: 'performance', label: 'Performance' },
-    { id: 'journal', label: 'Journal' },
-    { id: 'alerts', label: 'Alerts' },
+    { id: 'signals',     label: 'Signals'     },
+    { id: 'backtest',    label: 'Backtest'     },
+    { id: 'performance', label: 'Performance'  },
+    { id: 'journal',     label: 'Journal'      },
+    { id: 'alerts',      label: 'Alerts'       },
   ];
 
-  const runBacktest = () => {
-    setBacktestRunning(true);
-    setTimeout(() => {
-      setBacktestResults(mockBacktestResults);
-      setBacktestRunning(false);
-    }, 3000);
-  };
-
-  const formatDate = (timestamp) => {
-    const date = new Date(timestamp);
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    return `${months[date.getMonth()]} ${date.getDate()}`;
-  };
-
   const formatTime = (timestamp) => {
-    const date = new Date(timestamp);
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const hours = String(date.getHours()).padStart(2, '0');
-    const minutes = String(date.getMinutes()).padStart(2, '0');
-    return `${months[date.getMonth()]} ${date.getDate()}, ${hours}:${minutes}`;
+    const date = new Date(typeof timestamp === 'string' ? timestamp : timestamp);
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const h = String(date.getHours()).padStart(2,'0');
+    const m = String(date.getMinutes()).padStart(2,'0');
+    return `${months[date.getMonth()]} ${date.getDate()}, ${h}:${m}`;
   };
+
+  // ── Real backtest via backend ──────────────────────────────────────────
+  const runBacktest = async () => {
+    setRunning(true);
+    setBtError(null);
+    try {
+      const payload = {
+        symbol:          btSymbol,
+        timeframe:       btTimeframe,
+        initial_capital: parseFloat(btBalance),
+        risk_per_trade:  parseFloat(btRisk),
+      };
+      const res = await fetch(`${ML_API}/api/backtest/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      // Normalise response shape
+      setResults({
+        return:         data.total_return_pct   ?? data.return         ?? 0,
+        win_rate:       data.win_rate            ?? 0,
+        sharpe:         data.sharpe_ratio        ?? data.sharpe         ?? 0,
+        max_dd:         data.max_drawdown_pct    ?? data.max_dd         ?? 0,
+        trades:         data.total_trades        ?? data.trades         ?? 0,
+        profit_factor:  data.profit_factor       ?? 0,
+        expectancy:     data.expectancy_r        ?? data.expectancy     ?? 0,
+        calmar:         data.calmar_ratio        ?? data.calmar         ?? 0,
+      });
+    } catch (err) {
+      console.error('Backtest error:', err);
+      setBtError(`Backtest failed: ${err.message}`);
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  // ── Export signals as CSV ──────────────────────────────────────────────
+  const exportCSV = () => {
+    const header = 'Time,Symbol,Type,TF,Entry,SL,TP,R:R,Score,ML,Status,P&L\n';
+    const rows = allSignals.map(t =>
+      `${formatTime(t.time)},${t.symbol},${t.type},${t.timeframe},${t.entry},${t.sl},${t.tp},${t.rr},${t.score},${t.ml},${t.status},${t.pnl}`
+    ).join('\n');
+    const blob = new Blob([header + rows], { type: 'text/csv' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+    a.download = 'signals.csv'; a.click();
+  };
+
+  // ── Filter signals ─────────────────────────────────────────────────────
+  const filteredSignals = allSignals.filter(s => {
+    if (signalFilter === 'active') return s.status === 'ACTIVE';
+    if (signalFilter === 'won')    return s.status === 'TP HIT';
+    if (signalFilter === 'lost')   return s.status === 'SL HIT';
+    return true;
+  });
+
+  const backtestResults = results;
 
   return (
     <div className="bottom-panel-root border-t border-[var(--border)] flex flex-col" style={{ backgroundColor: 'var(--bg-secondary)' }}>
+
       {/* Tab Navigation */}
       <div className="flex items-center gap-1 px-4 pt-2" data-testid="bottom-panel-tabs">
         {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            data-testid={`tab-${tab.id}`}
-            onClick={() => setActiveTab(tab.id)}
+          <button key={tab.id} data-testid={`tab-${tab.id}`} onClick={() => setActiveTab(tab.id)}
             className="px-4 py-2 text-sm font-medium rounded-t transition-colors"
             style={{
               backgroundColor: activeTab === tab.id ? 'var(--bg-tertiary)' : 'transparent',
-              color: activeTab === tab.id ? 'var(--text-primary)' : 'var(--text-secondary)',
-              borderBottom: activeTab === tab.id ? '2px solid var(--accent-blue)' : 'none'
-            }}
-          >
+              color:            activeTab === tab.id ? 'var(--text-primary)' : 'var(--text-secondary)',
+              borderBottom:     activeTab === tab.id ? '2px solid var(--accent-blue)' : 'none',
+            }}>
             {tab.label}
+            {tab.id === 'alerts' && alerts.length > 0 && (
+              <span style={{ marginLeft: 5, fontSize: 9, padding: '1px 5px', borderRadius: 8, backgroundColor: 'var(--accent-red)', color: 'white' }}>
+                {alerts.length}
+              </span>
+            )}
           </button>
         ))}
       </div>
 
       {/* Tab Content */}
       <div className="flex-1 overflow-hidden">
-        {/* Signals Tab */}
+
+        {/* ── Signals Tab ── */}
         {activeTab === 'signals' && (
           <div className="h-full flex flex-col">
             <div className="flex items-center justify-between p-3 border-b border-[var(--border)]">
               <div className="flex items-center gap-2">
-                <button data-testid="filter-all" className="px-3 py-1 text-xs rounded" style={{ backgroundColor: 'var(--accent-blue)', color: 'white' }}>All</button>
-                <button data-testid="filter-active" className="px-3 py-1 text-xs rounded" style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}>Active</button>
-                <button data-testid="filter-won" className="px-3 py-1 text-xs rounded" style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}>Won</button>
-                <button data-testid="filter-lost" className="px-3 py-1 text-xs rounded" style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}>Lost</button>
+                {[
+                  { id: 'all',    label: 'All'    },
+                  { id: 'active', label: 'Active' },
+                  { id: 'won',    label: 'Won'    },
+                  { id: 'lost',   label: 'Lost'   },
+                ].map(f => (
+                  <button key={f.id} data-testid={`filter-${f.id}`} onClick={() => setSignalFilter(f.id)}
+                    className="px-3 py-1 text-xs rounded"
+                    style={{ backgroundColor: signalFilter === f.id ? 'var(--accent-blue)' : 'var(--bg-tertiary)', color: signalFilter === f.id ? 'white' : 'var(--text-secondary)' }}>
+                    {f.label}
+                  </button>
+                ))}
               </div>
-              <button data-testid="export-csv" className="flex items-center gap-1 px-3 py-1 text-xs rounded" style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}>
+              <button data-testid="export-csv" onClick={exportCSV}
+                className="flex items-center gap-1 px-3 py-1 text-xs rounded"
+                style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}>
                 <Download className="w-3 h-3" /> Export CSV
               </button>
             </div>
@@ -93,111 +170,101 @@ const BottomPanel = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {mockHistoricalTrades.map((trade) => (
-                    <tr
-                      key={trade.id}
-                      data-testid={`signal-row-${trade.id}`}
+                  {filteredSignals.map((trade, idx) => (
+                    <tr key={trade.id ?? idx} data-testid={`signal-row-${trade.id ?? idx}`}
                       className="border-b border-[var(--border)] hover:bg-[var(--bg-hover)] cursor-pointer transition-colors"
-                      style={{ color: 'var(--text-primary)' }}
-                    >
+                      style={{ color: 'var(--text-primary)' }}>
                       <td className="p-2">{formatTime(trade.time)}</td>
                       <td className="p-2 font-medium">{trade.symbol}</td>
                       <td className="p-2">
-                        <span
-                          className="px-2 py-0.5 rounded text-xs font-medium"
-                          style={{
-                            backgroundColor: trade.type === 'BUY' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)',
-                            color: trade.type === 'BUY' ? 'var(--accent-green)' : 'var(--accent-red)'
-                          }}
-                        >
+                        <span className="px-2 py-0.5 rounded text-xs font-medium"
+                          style={{ backgroundColor: trade.type === 'BUY' ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)', color: trade.type === 'BUY' ? 'var(--accent-green)' : 'var(--accent-red)' }}>
                           {trade.type}
                         </span>
                       </td>
                       <td className="p-2">{trade.timeframe}</td>
-                      <td className="p-2 text-right monospace">${trade.entry.toLocaleString()}</td>
-                      <td className="p-2 text-right monospace">${trade.sl.toLocaleString()}</td>
-                      <td className="p-2 text-right monospace">${trade.tp.toLocaleString()}</td>
-                      <td className="p-2 text-right monospace">{trade.rr.toFixed(1)}</td>
+                      <td className="p-2 text-right monospace">${parseFloat(trade.entry || 0).toLocaleString()}</td>
+                      <td className="p-2 text-right monospace">${parseFloat(trade.sl   || 0).toLocaleString()}</td>
+                      <td className="p-2 text-right monospace">${parseFloat(trade.tp   || 0).toLocaleString()}</td>
+                      <td className="p-2 text-right monospace">{parseFloat(trade.rr || 0).toFixed(1)}</td>
                       <td className="p-2 text-right">{trade.score}</td>
-                      <td className="p-2 text-right">{trade.ml}%</td>
+                      <td className="p-2 text-right">{trade.ml > 0 ? `${trade.ml}%` : '—'}</td>
                       <td className="p-2">
-                        <span
-                          className="px-2 py-0.5 rounded text-xs font-medium"
+                        <span className="px-2 py-0.5 rounded text-xs font-medium"
                           style={{
-                            backgroundColor: trade.status === 'TP HIT' ? 'rgba(16, 185, 129, 0.2)' : trade.status === 'SL HIT' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(59, 130, 246, 0.2)',
-                            color: trade.status === 'TP HIT' ? 'var(--accent-green)' : trade.status === 'SL HIT' ? 'var(--accent-red)' : 'var(--accent-blue)'
-                          }}
-                        >
+                            backgroundColor: trade.status === 'TP HIT' ? 'rgba(16,185,129,0.2)' : trade.status === 'SL HIT' ? 'rgba(239,68,68,0.2)' : 'rgba(59,130,246,0.2)',
+                            color:           trade.status === 'TP HIT' ? 'var(--accent-green)'  : trade.status === 'SL HIT' ? 'var(--accent-red)'   : 'var(--accent-blue)',
+                          }}>
                           {trade.status}
                         </span>
                       </td>
-                      <td className="p-2 text-right monospace font-semibold" style={{ color: trade.pnl >= 0 ? 'var(--accent-green)' : 'var(--accent-red)' }}>
-                        {trade.pnl >= 0 ? '+' : ''}${trade.pnl}
+                      <td className="p-2 text-right monospace font-semibold"
+                        style={{ color: (trade.pnl || 0) >= 0 ? 'var(--accent-green)' : 'var(--accent-red)' }}>
+                        {(trade.pnl || 0) >= 0 ? '+' : ''}${trade.pnl || 0}
                       </td>
                     </tr>
                   ))}
+                  {filteredSignals.length === 0 && (
+                    <tr><td colSpan={12} className="p-6 text-center" style={{ color: 'var(--text-secondary)' }}>No signals yet — run an analysis to generate signals</td></tr>
+                  )}
                 </tbody>
               </table>
             </div>
           </div>
         )}
 
-        {/* Backtest Tab */}
+        {/* ── Backtest Tab ── */}
         {activeTab === 'backtest' && (
           <div className="h-full flex">
             <div className="w-1/3 p-4 border-r border-[var(--border)] space-y-3">
               <div>
                 <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Symbol</label>
-                <select data-testid="backtest-symbol" className="w-full px-3 py-2 text-sm rounded border-0" style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}>
-                  <option>BTCUSDT</option>
-                  <option>ETHUSDT</option>
-                  <option>EURUSD</option>
+                <select data-testid="backtest-symbol" value={btSymbol} onChange={e => setBtSymbol(e.target.value)}
+                  className="w-full px-3 py-2 text-sm rounded border-0" style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}>
+                  <option>BTCUSDT</option><option>ETHUSDT</option><option>SOLUSDT</option><option>BNBUSDT</option>
                 </select>
               </div>
               <div>
                 <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Timeframe</label>
-                <select data-testid="backtest-timeframe" className="w-full px-3 py-2 text-sm rounded border-0" style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}>
-                  <option>15m</option>
-                  <option>1h</option>
-                  <option>4h</option>
+                <select data-testid="backtest-timeframe" value={btTimeframe} onChange={e => setBtTimeframe(e.target.value)}
+                  className="w-full px-3 py-2 text-sm rounded border-0" style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)' }}>
+                  <option>1m</option><option>5m</option><option>15m</option><option>1h</option><option>4h</option>
                 </select>
               </div>
               <div>
-                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Initial Balance</label>
-                <input data-testid="backtest-balance" type="number" defaultValue={10000} className="w-full px-3 py-2 text-sm rounded border-0" style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)' }} />
+                <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Initial Balance ($)</label>
+                <input data-testid="backtest-balance" type="number" value={btBalance} onChange={e => setBtBalance(e.target.value)}
+                  className="w-full px-3 py-2 text-sm rounded border-0" style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-primary)' }} />
               </div>
               <div>
-                <label className="block text-xs font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>Risk % per trade: 1%</label>
-                <input data-testid="backtest-risk-slider" type="range" min="0.5" max="3" step="0.1" defaultValue="1" className="w-full" />
+                <label className="block text-xs font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>Risk % per trade: {btRisk}%</label>
+                <input data-testid="backtest-risk-slider" type="range" min="0.5" max="3" step="0.1" value={btRisk}
+                  onChange={e => setBtRisk(e.target.value)} className="w-full" />
               </div>
-              <button
-                data-testid="run-backtest-button"
-                onClick={runBacktest}
-                disabled={backtestRunning}
+              <button data-testid="run-backtest-button" onClick={runBacktest} disabled={isRunning}
                 className="w-full py-2.5 text-sm font-medium rounded flex items-center justify-center gap-2 transition-colors"
-                style={{ backgroundColor: 'var(--accent-blue)', color: 'white', opacity: backtestRunning ? 0.6 : 1 }}
-              >
+                style={{ backgroundColor: 'var(--accent-blue)', color: 'white', opacity: isRunning ? 0.6 : 1 }}>
                 <Play className="w-4 h-4" />
-                {backtestRunning ? 'Running...' : 'RUN BACKTEST'}
+                {isRunning ? 'Running...' : 'RUN BACKTEST'}
               </button>
-              {backtestRunning && (
-                <div className="text-xs text-center" style={{ color: 'var(--text-secondary)' }}>Analyzing 847 candles...</div>
-              )}
+              {isRunning && <div className="text-xs text-center" style={{ color: 'var(--text-secondary)' }}>Fetching candles & running SMC analysis...</div>}
+              {btError  && <div className="text-xs text-center" style={{ color: 'var(--accent-red)' }}>{btError}</div>}
             </div>
             <div className="flex-1 p-4">
               {backtestResults ? (
                 <div className="grid grid-cols-4 gap-3">
                   {[
-                    { label: 'Return', value: `+${backtestResults.return}%`, color: 'var(--accent-green)' },
-                    { label: 'Win Rate', value: `${backtestResults.win_rate}%`, color: 'var(--text-primary)' },
-                    { label: 'Sharpe', value: backtestResults.sharpe.toFixed(2), color: 'var(--text-primary)' },
-                    { label: 'Max DD', value: `${backtestResults.max_dd}%`, color: 'var(--accent-red)' },
-                    { label: 'Trades', value: backtestResults.trades, color: 'var(--text-primary)' },
-                    { label: 'P.Factor', value: backtestResults.profit_factor.toFixed(2), color: 'var(--text-primary)' },
-                    { label: 'Expectancy', value: `+${backtestResults.expectancy}R`, color: 'var(--accent-green)' },
-                    { label: 'Calmar', value: backtestResults.calmar.toFixed(2), color: 'var(--text-primary)' },
-                  ].map((metric, index) => (
-                    <div key={index} data-testid={`backtest-metric-${metric.label.toLowerCase().replace(/\s/g, '-')}`} className="p-4 rounded-lg" style={{ backgroundColor: 'var(--bg-tertiary)' }}>
+                    { label: 'Return',      value: `${backtestResults.return >= 0 ? '+' : ''}${parseFloat(backtestResults.return).toFixed(1)}%`, color: backtestResults.return >= 0 ? 'var(--accent-green)' : 'var(--accent-red)' },
+                    { label: 'Win Rate',    value: `${parseFloat(backtestResults.win_rate).toFixed(1)}%`,  color: 'var(--text-primary)' },
+                    { label: 'Sharpe',      value: parseFloat(backtestResults.sharpe).toFixed(2),          color: 'var(--text-primary)' },
+                    { label: 'Max DD',      value: `${parseFloat(backtestResults.max_dd).toFixed(1)}%`,    color: 'var(--accent-red)' },
+                    { label: 'Trades',      value: backtestResults.trades,                                 color: 'var(--text-primary)' },
+                    { label: 'P.Factor',    value: parseFloat(backtestResults.profit_factor).toFixed(2),   color: 'var(--text-primary)' },
+                    { label: 'Expectancy',  value: `${backtestResults.expectancy >= 0 ? '+' : ''}${parseFloat(backtestResults.expectancy).toFixed(2)}R`, color: 'var(--accent-green)' },
+                    { label: 'Calmar',      value: parseFloat(backtestResults.calmar).toFixed(2),          color: 'var(--text-primary)' },
+                  ].map((metric, i) => (
+                    <div key={i} data-testid={`backtest-metric-${metric.label.toLowerCase().replace(/\s/g,'-')}`}
+                      className="p-4 rounded-lg" style={{ backgroundColor: 'var(--bg-tertiary)' }}>
                       <div className="text-2xl font-bold mb-1" style={{ color: metric.color }}>{metric.value}</div>
                       <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>{metric.label}</div>
                     </div>
@@ -207,8 +274,8 @@ const BottomPanel = () => {
                 <div className="h-full flex items-center justify-center text-center">
                   <div>
                     <div className="text-4xl mb-2">📊</div>
-                    <div className="text-sm mb-1" style={{ color: 'var(--text-primary)' }}>Configure and run your first backtest</div>
-                    <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>Select parameters and click Run Backtest</div>
+                    <div className="text-sm mb-1" style={{ color: 'var(--text-primary)' }}>Configure and run a backtest</div>
+                    <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>Results will appear here</div>
                   </div>
                 </div>
               )}
@@ -216,66 +283,74 @@ const BottomPanel = () => {
           </div>
         )}
 
-        {/* Performance Tab */}
+        {/* ── Performance Tab ── */}
         {activeTab === 'performance' && (
           <div className="h-full p-4">
             <div className="mb-4">
               <div className="flex items-center justify-between mb-3">
                 <span className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Equity Curve</span>
                 <div className="flex items-center gap-2">
-                  {['1W', '1M', '3M', 'ALL'].map((period) => (
-                    <button
-                      key={period}
-                      className="px-2 py-1 text-xs rounded"
-                      style={{ backgroundColor: period === '1M' ? 'var(--accent-blue)' : 'var(--bg-tertiary)', color: period === '1M' ? 'white' : 'var(--text-secondary)' }}
-                    >
-                      {period}
+                  {['1W','1M','3M','ALL'].map(p => (
+                    <button key={p} className="px-2 py-1 text-xs rounded"
+                      style={{ backgroundColor: p === '1M' ? 'var(--accent-blue)' : 'var(--bg-tertiary)', color: p === '1M' ? 'white' : 'var(--text-secondary)' }}>
+                      {p}
                     </button>
                   ))}
                 </div>
               </div>
-              <div className="h-[200px] flex items-center justify-center text-center" style={{ backgroundColor: 'var(--bg-tertiary)', borderRadius: '8px' }}>
+              <div className="h-[200px] flex items-center justify-center text-center" style={{ backgroundColor: 'var(--bg-tertiary)', borderRadius: 8 }}>
                 <div>
-                  <div className="text-4xl mb-2">\ud83d\udcc8</div>
+                  <div className="text-4xl mb-2">📈</div>
                   <div className="text-sm" style={{ color: 'var(--text-primary)' }}>Equity Curve Chart</div>
-                  <div className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>Chart visualization coming soon</div>
+                  <div className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>Run a backtest to see equity curve</div>
                 </div>
               </div>
             </div>
+            {/* Summary stats from backtest if available */}
+            {backtestResults && (
+              <div className="grid grid-cols-4 gap-2 mt-3">
+                {[
+                  { label: 'Total Return', value: `${backtestResults.return >= 0 ? '+' : ''}${parseFloat(backtestResults.return).toFixed(1)}%` },
+                  { label: 'Win Rate',     value: `${parseFloat(backtestResults.win_rate).toFixed(1)}%` },
+                  { label: 'Max Drawdown', value: `${parseFloat(backtestResults.max_dd).toFixed(1)}%` },
+                  { label: 'Total Trades', value: backtestResults.trades },
+                ].map((m, i) => (
+                  <div key={i} className="p-3 rounded" style={{ backgroundColor: 'var(--bg-tertiary)' }}>
+                    <div className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>{m.value}</div>
+                    <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>{m.label}</div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
-        {/* Journal Tab */}
+        {/* ── Journal Tab ── */}
         {activeTab === 'journal' && (
           <div className="h-full flex">
             <div className="w-2/5 border-r border-[var(--border)] overflow-y-auto p-3 space-y-2">
-              {mockHistoricalTrades.slice(0, 6).map((trade) => (
-                <div
-                  key={trade.id}
-                  data-testid={`journal-entry-${trade.id}`}
+              {filteredSignals.slice(0, 20).map((trade, idx) => (
+                <div key={trade.id ?? idx} data-testid={`journal-entry-${trade.id ?? idx}`}
                   className="p-3 rounded cursor-pointer hover:bg-[var(--bg-hover)] transition-colors"
-                  style={{ backgroundColor: 'var(--bg-tertiary)' }}
-                >
+                  style={{ backgroundColor: 'var(--bg-tertiary)' }}>
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{formatTime(trade.time)}</span>
-                    <span
-                      className="px-2 py-0.5 rounded text-xs font-medium"
-                      style={{
-                        backgroundColor: trade.type === 'BUY' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)',
-                        color: trade.type === 'BUY' ? 'var(--accent-green)' : 'var(--accent-red)'
-                      }}
-                    >
+                    <span className="px-2 py-0.5 rounded text-xs font-medium"
+                      style={{ backgroundColor: trade.type === 'BUY' ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)', color: trade.type === 'BUY' ? 'var(--accent-green)' : 'var(--accent-red)' }}>
                       {trade.type}
                     </span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>{trade.symbol}</span>
-                    <span className="font-semibold monospace" style={{ color: trade.pnl >= 0 ? 'var(--accent-green)' : 'var(--accent-red)' }}>
-                      {trade.pnl >= 0 ? '+' : ''}${trade.pnl} ({trade.r_multiple.toFixed(1)}R)
+                    <span className="font-semibold monospace" style={{ color: (trade.pnl || 0) >= 0 ? 'var(--accent-green)' : 'var(--accent-red)' }}>
+                      {(trade.pnl || 0) >= 0 ? '+' : ''}${trade.pnl || 0} ({parseFloat(trade.r_multiple || 0).toFixed(1)}R)
                     </span>
                   </div>
                 </div>
               ))}
+              {filteredSignals.length === 0 && (
+                <div className="text-center p-6" style={{ color: 'var(--text-secondary)' }}>No trades yet</div>
+              )}
             </div>
             <div className="flex-1 p-4 flex items-center justify-center">
               <div className="text-center">
@@ -286,63 +361,55 @@ const BottomPanel = () => {
           </div>
         )}
 
-        {/* Alerts Tab */}
+        {/* ── Alerts Tab ── */}
         {activeTab === 'alerts' && (
           <div className="h-full flex">
-            <div className="flex-1 p-4 space-y-2 overflow-y-auto">
-              {mockAlerts.map((alert) => (
-                <div
-                  key={alert.id}
-                  data-testid={`alert-${alert.id}`}
+            <div className="flex-1 p-4 space-y-2 overflow-y-auto" onClick={markAsRead}>
+              {alerts.length > 0 ? alerts.map((alert) => (
+                <div key={alert.id} data-testid={`alert-${alert.id}`}
                   className="flex items-start gap-3 p-3 rounded-lg"
-                  style={{ backgroundColor: 'var(--bg-tertiary)' }}
-                >
+                  style={{ backgroundColor: 'var(--bg-tertiary)' }}>
                   <span className="text-xl">
-                    {alert.severity === 'success' && '🟢'}
-                    {alert.severity === 'error' && '🔴'}
-                    {alert.severity === 'warning' && '🟡'}
+                    {alert.severity === 'success' ? '🟢' : alert.severity === 'error' ? '🔴' : '🟡'}
                   </span>
                   <div className="flex-1">
-                    <div className="text-xs mb-1" style={{ color: 'var(--text-secondary)' }}>{formatTime(alert.time)}</div>
+                    <div className="text-xs mb-1" style={{ color: 'var(--text-secondary)' }}>
+                      {alert.timestamp ? formatTime(alert.timestamp) : 'Just now'}
+                    </div>
                     <div className="text-sm" style={{ color: 'var(--text-primary)' }}>
                       {alert.symbol && <span className="font-semibold">{alert.symbol} — </span>}
                       {alert.message}
                     </div>
                   </div>
                 </div>
-              ))}
+              )) : (
+                <div className="text-center p-6" style={{ color: 'var(--text-secondary)' }}>
+                  <div className="text-3xl mb-2">🔔</div>
+                  No alerts yet — signals will appear here automatically
+                </div>
+              )}
             </div>
             <div className="w-80 border-l border-[var(--border)] p-4">
               <div className="text-sm font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>Alert Settings</div>
               <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>Telegram Alerts</span>
-                  <div className="w-11 h-6 rounded-full relative cursor-pointer" style={{ backgroundColor: 'var(--bg-hover)' }}>
-                    <div className="w-5 h-5 rounded-full absolute top-0.5 left-0.5 transition-all" style={{ backgroundColor: 'var(--text-muted)' }}></div>
+                {[
+                  { label: 'Telegram Alerts',      key: 'telegram' },
+                  { label: 'Email Alerts',          key: 'email'    },
+                  { label: 'Browser Notifications', key: 'browser', on: true },
+                  { label: 'Sound Alerts',          key: 'sound',   on: true },
+                ].map(({ label, key, on }) => (
+                  <div key={key} className="flex items-center justify-between">
+                    <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>{label}</span>
+                    <div className="w-11 h-6 rounded-full relative cursor-pointer" style={{ backgroundColor: on ? 'var(--accent-blue)' : 'var(--bg-hover)' }}>
+                      <div className="w-5 h-5 rounded-full absolute top-0.5 transition-all" style={{ backgroundColor: on ? 'white' : 'var(--text-muted)', right: on ? '2px' : undefined, left: on ? undefined : '2px' }} />
+                    </div>
                   </div>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>Email Alerts</span>
-                  <div className="w-11 h-6 rounded-full relative cursor-pointer" style={{ backgroundColor: 'var(--bg-hover)' }}>
-                    <div className="w-5 h-5 rounded-full absolute top-0.5 left-0.5 transition-all" style={{ backgroundColor: 'var(--text-muted)' }}></div>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>Browser Notifications</span>
-                  <div className="w-11 h-6 rounded-full relative cursor-pointer" style={{ backgroundColor: 'var(--accent-blue)' }}>
-                    <div className="w-5 h-5 rounded-full absolute top-0.5 right-0.5 transition-all" style={{ backgroundColor: 'white' }}></div>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>Sound Alerts</span>
-                  <div className="w-11 h-6 rounded-full relative cursor-pointer" style={{ backgroundColor: 'var(--accent-blue)' }}>
-                    <div className="w-5 h-5 rounded-full absolute top-0.5 right-0.5 transition-all" style={{ backgroundColor: 'white' }}></div>
-                  </div>
-                </div>
+                ))}
               </div>
             </div>
           </div>
         )}
+
       </div>
     </div>
   );
